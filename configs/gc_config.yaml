@@ -1,0 +1,38 @@
+# GC (Comex Gold) swing model config — V1.
+symbol: GC
+yf_symbol: GC=F
+micro: MGC
+point_value: 10.0     # MGC = $10 / $1 move
+tick: 0.10
+horizon: 10           # gold reacts slower -> longer horizon
+regime: rule          # HMM (market or gold) did not help GC (V1.2b) -> rule
+
+signal:
+  long_threshold: 0.35
+  short_threshold: -0.35
+  vol_window: 21
+
+execution:
+  atr_window: 14
+  stop_atr_mult: 2.0
+  target_atr_mult: 3.0
+
+risk:
+  sizing_mode: vol_target  # vol_target (default, V1.3) | risk
+  target_vol: 0.10         # annualized per-trade vol target
+  risk_frac: 0.0075        # per-trade risk fraction (used by 'risk' sizing mode)
+  max_contracts: 10
+  strength_scale: 0.5
+  dd_halve: 0.05
+  dd_halt: 0.10
+  event_window_days: 1
+
+model:
+  objective: huber
+  n_estimators: 300
+  learning_rate: 0.02
+  num_leaves: 15
+  max_depth: 3
+  min_child_samples: 100
+  reg_alpha: 1.0
+  reg_lambda: 5.0

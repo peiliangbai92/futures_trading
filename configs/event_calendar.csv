@@ -1,0 +1,35 @@
+# Macro event calendar for event-aware scenario tails (US Eastern Time dates).
+# Each row bumps the simulated per-day volatility on `date` by `vol_mult`
+# (applied to that day's GBM steps only). The MC band edges stay at base sigma,
+# so a bump raises the D-tail probability without hand-setting it.
+#
+# vol_mult is CALIBRATED, not guessed: median(Parkinson realized vol on event
+# days) / median(baseline) on ^GSPC, full history. Re-run with:
+#   python scripts/fetch_fred_event_dates.py        # refresh CPI/PPI/PCE/NFP dates
+#   python scripts/calibrate_event_vol.py --start 1990-01-01 \
+#       --dates-file NFP=data/macro/fred_dates/NFP.txt
+# Calibrated 2026-06-09 (^GSPC full-history median):
+#   NFP 1.17 (n=435) | FOMC 1.20 (n=260, 1994-2026)
+#
+# Only FOMC + NFP are listed: calibration found CPI/PPI/PCE ~1.0 (median, full
+# history) — negligible tail effect — and OpEx 0.90 (a vol *damp*, not a tail
+# event), so they are deliberately excluded. Decision 2026-06-09.
+#
+# Dates: NFP from the FRED release-dates API (8:30am ET; note 2026-07-02, not
+# the 1st Friday, because 7/3 is the July-4 holiday). FOMC decision days
+# (2:00pm ET) from configs/macro/fomc_decision_days.txt (Fed calendar; FRED has
+# no clean FOMC date source). If a day has multiple rows, the loader takes MAX.
+#
+# date,event,category,vol_mult
+2026-06-05,Nonfarm payrolls (May),NFP,1.17
+2026-06-17,FOMC decision (Jun),FOMC,1.20
+2026-07-02,Nonfarm payrolls (Jun),NFP,1.17
+2026-07-29,FOMC decision (Jul),FOMC,1.20
+2026-08-07,Nonfarm payrolls (Jul),NFP,1.17
+2026-09-04,Nonfarm payrolls (Aug),NFP,1.17
+2026-09-16,FOMC decision (Sep),FOMC,1.20
+2026-10-02,Nonfarm payrolls (Sep),NFP,1.17
+2026-10-28,FOMC decision (Oct),FOMC,1.20
+2026-11-06,Nonfarm payrolls (Oct),NFP,1.17
+2026-12-04,Nonfarm payrolls (Nov),NFP,1.17
+2026-12-09,FOMC decision (Dec),FOMC,1.20

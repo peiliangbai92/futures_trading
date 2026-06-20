@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Data caches and generated outputs (keep dirs via .gitkeep)
+data/raw/*.parquet
+data/processed/*.parquet
+data/signals/*.csv
+reports/
+outputs/
+*.png
