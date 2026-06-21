@@ -76,6 +76,9 @@ jobs:
             echo "An open issue for $ASOF already exists — not duplicating."
             exit 0
           fi
+          # @-mention the repo owner so the phone gets a reliable "participating"
+          # push even without watching the repo's issues.
+          printf '\n\ncc @%s\n' "${{ github.repository_owner }}" >> out/issue_body.md
           gh issue create --title "$TITLE" --body-file out/issue_body.md \
             && echo "Opened issue: $TITLE"
 
