@@ -69,11 +69,25 @@ def _assemble(symbol: str, pred: pd.Series) -> pd.DataFrame:
 def simulate(
     symbol: str, df: pd.DataFrame, *, init_equity: float = INIT_EQUITY,
     sizing_mode: str = "vol_target", target_vol: float = TARGET_VOL,
+    exit_override: dict | None = None,
 ) -> tuple[list[dict], pd.Series, int]:
     spec = INSTRUMENTS[symbol]
     pv, tick, horizon = spec["point_value"], spec["tick"], spec["horizon"]
     roundtrip_cost = 2 * COMMISSION_PER_SIDE + 2 * SLIPPAGE_TICKS * tick * pv  # $ / contract
     events = load_event_dates()
+    # Exit policy (V1.5). "atr": fixed ATR stop/target + horizon time-stop (default,
+    # GC). "trail": initial ATR stop, then a peak-following trailing stop (rides the
+    # rally, sells on the pullback). "signal": reversion sell-high — hold the long
+    # until the (smoothed) forecast flips to overbought (sharpe <= -signal_exit_th),
+    # keeping the protective ATR stop and a max-hold backstop.
+    exit_cfg = exit_override or spec.get("exit", {"mode": "atr"})
+    exit_mode = exit_cfg.get("mode", "atr")
+    trail_mult = float(exit_cfg.get("trail_mult", 3.0))
+    max_hold = int(exit_cfg.get("max_hold", horizon))
+    signal_exit_th = float(exit_cfg.get("signal_exit_th", spec.get("signal_th", 0.35)))
+    use_stop = bool(exit_cfg.get("use_stop", True))   # signal mode: protective ATR stop on/off
+    trend_ma_win = int(exit_cfg.get("trend_ma_win", 50))  # trend_stop mode: the stop MA
+    entry_filter = exit_cfg.get("entry_filter")       # "trend_up" -> only buy above the trend MA
 
     idx = df.index
     n = len(idx)
@@ -81,6 +95,7 @@ def simulate(
     atr, sig, shp = df["atr"].to_numpy(float), df["signal"].to_numpy(int), df["sharpe"].to_numpy(float)
     annv = df["ann_vol"].to_numpy(float)
     reg = df["regime"].to_numpy(object)
+    trend_ma = df["close"].rolling(trend_ma_win, min_periods=trend_ma_win).mean().to_numpy()
 
     cash = init_equity
     equity = pd.Series(init_equity, index=idx, dtype=float)
@@ -91,6 +106,7 @@ def simulate(
     in_pos = False
     side = contracts = entry_i = 0
     entry_price = stop = target = entry_sharpe = 0.0
+    peak = trough = entry_atr = 0.0
     entry_date = entry_regime = None
 
     def close_trade(i: int, price: float, reason: str) -> None:
@@ -115,9 +131,46 @@ def simulate(
 
     for i in range(n):
         if in_pos:
-            reason, price = hit_exit(side, h[i], l[i], stop, target)
-            if reason is None and (i - entry_i) >= horizon:
-                reason, price = "time", c[i]
+            if exit_mode == "trail":
+                peak = max(peak, h[i]); trough = min(trough, l[i])
+                if side > 0:
+                    eff_stop = max(stop, peak - trail_mult * entry_atr)  # ratchets up
+                    reason, price = hit_exit(side, h[i], l[i], eff_stop, float("inf"))
+                else:
+                    eff_stop = min(stop, trough + trail_mult * entry_atr)
+                    reason, price = hit_exit(side, h[i], l[i], eff_stop, float("-inf"))
+                if reason is None and (i - entry_i) >= max_hold:
+                    reason, price = "time", c[i]
+            elif exit_mode == "signal":
+                # reversion sell-high: hold until the forecast flips to overbought
+                # (long) / oversold (short); the overbought signal sits at ~64th
+                # local pct, so this sells high IF we don't get stopped out first.
+                eff_stop = stop if use_stop else (float("-inf") if side > 0 else float("inf"))
+                reason, price = hit_exit(side, h[i], l[i], eff_stop,
+                                         float("inf") if side > 0 else float("-inf"))
+                if reason is None and ((side > 0 and shp[i] <= -signal_exit_th) or
+                                       (side < 0 and shp[i] >= signal_exit_th)):
+                    reason, price = "signal", c[i]
+                if reason is None and (i - entry_i) >= max_hold:
+                    reason, price = "time", c[i]
+            elif exit_mode == "trend_stop":
+                # the pairing: reversion TRIGGERS the sell (overbought = sell high),
+                # the TREND decides the stop — hold through dips while price holds
+                # the trend MA, cut fast when the uptrend breaks (kills falling knives).
+                reason = price = None
+                if side > 0 and np.isfinite(trend_ma[i]) and c[i] < trend_ma[i]:
+                    reason, price = "trend_stop", c[i]
+                elif side < 0 and np.isfinite(trend_ma[i]) and c[i] > trend_ma[i]:
+                    reason, price = "trend_stop", c[i]
+                if reason is None and ((side > 0 and shp[i] <= -signal_exit_th) or
+                                       (side < 0 and shp[i] >= signal_exit_th)):
+                    reason, price = "signal", c[i]
+                if reason is None and (i - entry_i) >= max_hold:
+                    reason, price = "time", c[i]
+            else:
+                reason, price = hit_exit(side, h[i], l[i], stop, target)
+                if reason is None and (i - entry_i) >= horizon:
+                    reason, price = "time", c[i]
             if reason is None and sig[i] != 0 and np.sign(sig[i]) != side:
                 reason, price = "reversal", c[i]
             if reason is not None:
@@ -129,7 +182,8 @@ def simulate(
         else:
             equity.iloc[i] = cash
 
-        if (not in_pos) and i + 1 < n and sig[i] != 0 and atr[i] > 0:
+        entry_ok = (entry_filter != "trend_up") or (np.isfinite(trend_ma[i]) and c[i] > trend_ma[i])
+        if (not in_pos) and entry_ok and i + 1 < n and sig[i] != 0 and atr[i] > 0:
             mult = rm.size_multiplier(cash)
             if mult > 0 and not near_event(idx[i + 1], events):
                 if sizing_mode == "vol_target":
@@ -141,6 +195,7 @@ def simulate(
                     side = int(sig[i]); contracts = qty; entry_price = o[i + 1]
                     lv = levels(side, entry_price, atr[i])
                     stop, target = lv["stop"], lv["target"]
+                    peak = trough = entry_price; entry_atr = atr[i]
                     entry_i = i + 1; entry_date = idx[i + 1]
                     entry_sharpe = shp[i]; entry_regime = reg[i]
                     in_pos = True
@@ -251,7 +306,8 @@ def _write_report(path: Path, symbol: str, s: dict, base: dict, regime_hits: pd.
         f"# {symbol} swing backtest (walk-forward, OOS)", "",
         f"- Period: {s['period']}  (horizon {s['horizon']}d)",
         f"- Forecast quality: OOS IC {wf.oos_ic:+.3f}, OOS hit {wf.oos_hit:.3f}, "
-        f"IS-OOS IC gap {wf.is_oos_gap:+.3f} (large => overfit)",
+        f"IS-OOS IC gap {wf.is_oos_gap:+.3f} "
+        f"({'large — capacity-overfit (benign, see GAP_DIAGNOSIS.md)' if wf.is_oos_gap > 0.15 else 'small — no capacity overfit'})",
         f"- Effective N {wf.effective_n:.0f} on {wf.n_features} features", "",
         f"## Strategy (net of micro-contract costs; sizing={s['sizing_mode']})",
         f"- {_fmt(s)}",

@@ -152,9 +152,55 @@ def _new_model(params: dict | None = None):
     return LGBMRegressor(**p)
 
 
-def walk_forward(symbol: str, *, params: dict | None = None, embargo: int | None = None, include_fred: bool = False, regime_mode: str = "auto", hmm_kwargs: dict | None = None) -> WalkForwardResult:
-    """Run purged walk-forward CV and collect OOS forecasts + IS/OOS metrics."""
+# --- per-symbol alpha dispatch (V1.4) -----------------------------------------
+# The gap diagnosis showed the model class should be per-symbol: ES is a linear
+# short-horizon mean-reversion problem (ridge on ret_5/ret_20; the 23-feature
+# LightGBM dilutes the signal to noise), while GC carries real nonlinearity that
+# only LightGBM captures. ``INSTRUMENTS[sym]["alpha"]`` selects kind + features.
+DEFAULT_ALPHA = {"kind": "lgbm", "features": "all"}
+
+
+def _resolve_alpha(symbol: str, override: dict | None) -> dict:
+    if override is not None:
+        return override
+    return INSTRUMENTS[symbol].get("alpha", DEFAULT_ALPHA)
+
+
+def _make_estimator(alpha_spec: dict, params: dict | None = None):
+    """LightGBM (default) or a regularized linear pipeline (ridge)."""
+    if alpha_spec.get("kind", "lgbm") == "ridge":
+        from sklearn.impute import SimpleImputer
+        from sklearn.linear_model import Ridge
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        return Pipeline([
+            ("imp", SimpleImputer(strategy="median")),
+            ("sc", StandardScaler()),
+            ("rdg", Ridge(alpha=alpha_spec.get("ridge_alpha", 10.0))),
+        ])
+    return _new_model(params)
+
+
+def _select_features(X: pd.DataFrame, alpha_spec: dict) -> pd.DataFrame:
+    feats = alpha_spec.get("features", "all")
+    if feats == "all":
+        return X
+    keep = [c for c in feats if c in X.columns]
+    if not keep:
+        raise ValueError(f"alpha feature set {feats} not found in feature matrix")
+    return X[keep]
+
+
+def walk_forward(symbol: str, *, params: dict | None = None, embargo: int | None = None, include_fred: bool = False, regime_mode: str = "auto", hmm_kwargs: dict | None = None, alpha_spec: dict | None = None) -> WalkForwardResult:
+    """Run purged walk-forward CV and collect OOS forecasts + IS/OOS metrics.
+
+    The estimator + feature set come from the per-symbol alpha spec
+    (``INSTRUMENTS[sym]["alpha"]``, overridable via ``alpha_spec``): ES uses a
+    ridge mean-reversion sleeve, GC the full-feature LightGBM (V1.4)."""
+    alpha = _resolve_alpha(symbol, alpha_spec)
     X, y, horizon = make_dataset(symbol, include_fred=include_fred, regime_mode=regime_mode, hmm_kwargs=hmm_kwargs)
+    X = _select_features(X, alpha)
     folds = purged_walk_forward_folds(len(X), horizon=horizon, embargo=embargo)
     if not folds:
         raise RuntimeError(f"{symbol}: not enough history for any walk-forward fold")
@@ -164,10 +210,10 @@ def walk_forward(symbol: str, *, params: dict | None = None, embargo: int | None
     for i, (tr, te) in enumerate(folds):
         X_tr, y_tr = X.iloc[tr.start:tr.stop], y.iloc[tr.start:tr.stop]
         X_te, y_te = X.iloc[te.start:te.stop], y.iloc[te.start:te.stop]
-        model = _new_model(params)
+        model = _make_estimator(alpha, params)
         model.fit(X_tr, y_tr)
-        pred_te = pd.Series(model.predict(X_te), index=X_te.index)
-        pred_tr = pd.Series(model.predict(X_tr), index=X_tr.index)
+        pred_te = pd.Series(np.asarray(model.predict(X_te)), index=X_te.index)
+        pred_tr = pd.Series(np.asarray(model.predict(X_tr)), index=X_tr.index)
         oos_pred.iloc[te.start:te.stop] = pred_te.to_numpy()
         rows.append(
             dict(
@@ -193,13 +239,15 @@ def walk_forward(symbol: str, *, params: dict | None = None, embargo: int | None
     )
 
 
-def fit_full(symbol: str, *, params: dict | None = None, embargo: int | None = None):
+def fit_full(symbol: str, *, params: dict | None = None, embargo: int | None = None, alpha_spec: dict | None = None):
     """Train on all rows that have a realized target (minus the final purge gap),
     for live prediction. Returns (model, feature_cols, last_train_date)."""
+    alpha = _resolve_alpha(symbol, alpha_spec)
     X, y, horizon = make_dataset(symbol)
+    X = _select_features(X, alpha)
     embargo = horizon if embargo is None else embargo
     cut = len(X)  # all targets already realized; purge nothing extra at the tail
-    model = _new_model(params)
+    model = _make_estimator(alpha, params)
     model.fit(X.iloc[:cut], y.iloc[:cut])
     return model, list(X.columns), X.index[cut - 1]
 
