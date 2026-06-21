@@ -128,6 +128,35 @@ def simulate(symbol: str, cfg: dict, *, init_equity=INIT_EQUITY, max_lots=MAX_LO
     return df, equity, trades
 
 
+def live_signal(symbol: str, *, max_lots=MAX_LOTS) -> dict:
+    """Today's action for the PRE-REGISTERED strategy (what to actually trade):
+    walk the position to the last bar and report the position held now + the
+    action signalled today (executes at the next open). Matches what
+    forward_validation tracks, unlike the V1.4 pipeline."""
+    cfg = DESIGN[symbol]
+    df, buy_days, sell_days = build_signals(symbol, cfg)
+    n = len(df); idx = df.index
+    c, h = df["close"].to_numpy(float), df["high"].to_numpy(float)
+    pos = last_buy = 0; last_buy = -10**9; peak = 0.0
+    trail = cfg["sell"] == "trail"; drop = cfg.get("trail_drop", 0.08)
+    pos_now = 0; pending = "HOLD"
+    for i in range(n):
+        if i == n - 1:
+            pos_now = pos
+        exited = entered = False
+        if pos > 0:
+            peak = max(peak, h[i])
+            if (trail and c[i] < peak * (1 - drop)) or (not trail and i in sell_days):
+                exited = True; pos = 0; peak = 0.0
+        if (i in buy_days) and pos < max_lots and (i - last_buy) >= cfg["cooldown"]:
+            pos += 1; last_buy = i; peak = max(peak, c[i]); entered = True
+        if i == n - 1:
+            pending = "EXIT ALL" if exited else ("BUY 1 lot" if entered else "HOLD")
+    return dict(symbol=symbol, asof=str(idx[-1].date()), position_now=pos_now,
+                pending_action=pending, position_after=pos,
+                sharpe=round(float(df["sharpe"].iloc[-1]), 3), exit_rule=cfg["sell"])
+
+
 def run(symbol: str, *, init_equity=INIT_EQUITY) -> dict:
     cfg = DESIGN[symbol]
     df, equity, trades = simulate(symbol, cfg, init_equity=init_equity)
