@@ -50,6 +50,9 @@ def compute_signals(
         long_th = symbol_threshold(symbol)
     if short_th is None:
         short_th = -symbol_threshold(symbol)
+    smooth = INSTRUMENTS[symbol].get("signal_smooth")
+    if smooth:
+        pred = pred.ewm(span=int(smooth)).mean()   # causal EMA — cuts forecast noise
     horizon = INSTRUMENTS[symbol]["horizon"]
     close = data_loader.load_ohlc(symbol)["close"]
     fc = horizon_forecast_vol(close, horizon, window=window).reindex(pred.index)

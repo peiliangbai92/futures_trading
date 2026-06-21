@@ -28,6 +28,13 @@ INSTRUMENTS = {
         "alpha": {"kind": "ridge", "features": ["ret_5", "ret_20"], "ridge_alpha": 10.0},
         "signal_th": 0.12,
         "long_only": True,
+        # Exit = ATR stop/target + 5d time-stop (the default). KEY finding from the
+        # V1.5/1.6 exit study: quick exits are what let the strategy BUY THE NEXT LOW
+        # (it cycled out and had dry powder — e.g. it bought the Apr-2025 crash bottom
+        # @5097). "Hold-to-sell-high" variants get stuck fully invested and CANNOT buy
+        # the bottoms (scale-in added 0 lots at the Apr-2025 low), and run -16/-25%
+        # drawdowns. So "sell early" and "buy the bottom" are the same coin; the ATR
+        # exit gives the best risk-adjusted result (Sharpe ~0.47, maxDD ~-4.3%).
     },
     "GC": {
         "yf_symbol": "GC=F",
