@@ -86,8 +86,12 @@ def build_signals(symbol: str, cfg: dict, sharpe_override: pd.Series | None = No
     return df, buy_days, sell_days
 
 
-def simulate(symbol: str, cfg: dict, *, init_equity=INIT_EQUITY, max_lots=MAX_LOTS, sharpe_override=None):
+def simulate(symbol: str, cfg: dict, *, init_equity=INIT_EQUITY, max_lots=MAX_LOTS,
+             sharpe_override=None, trade_start=None):
+    """``trade_start`` (a Timestamp): no NEW entries before it — gives a flat start
+    for forward-window evaluation; equity stays at ``init_equity`` until then."""
     df, buy_days, sell_days = build_signals(symbol, cfg, sharpe_override=sharpe_override)
+    trade_start = pd.Timestamp(trade_start) if trade_start is not None else None
     pv = INSTRUMENTS[symbol]["point_value"]; tick = INSTRUMENTS[symbol]["tick"]
     roundtrip = 2 * COMMISSION_PER_SIDE + 2 * SLIPPAGE_TICKS * tick * pv
     o, h, c = (df[k].to_numpy(float) for k in ("open", "high", "close"))
@@ -113,7 +117,8 @@ def simulate(symbol: str, cfg: dict, *, init_equity=INIT_EQUITY, max_lots=MAX_LO
             trades.append(dict(exit=str(idx[i + 1].date()), lots=pos, pnl=round(pnl, 2),
                                entry=str(entry_first.date())))
             pos = 0; cost_basis = 0.0; peak = 0.0; entry_first = None
-        if (i in buy_days) and pos < max_lots and (i - last_buy) >= cfg["cooldown"] and i + 1 < n:
+        if ((i in buy_days) and pos < max_lots and (i - last_buy) >= cfg["cooldown"] and i + 1 < n
+                and (trade_start is None or idx[i] >= trade_start)):
             pos += 1; cost_basis += o[i + 1]; peak = max(peak, o[i + 1])
             last_buy = i
             if entry_first is None:
