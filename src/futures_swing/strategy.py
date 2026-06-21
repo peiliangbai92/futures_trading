@@ -23,7 +23,7 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from . import INSTRUMENTS, data_loader, model, signal
+from . import INSTRUMENTS, data_loader, features, model, signal
 from . import vol as volmod
 from .backtest import COMMISSION_PER_SIDE, SLIPPAGE_TICKS, _ann_stats
 
@@ -128,13 +128,29 @@ def simulate(symbol: str, cfg: dict, *, init_equity=INIT_EQUITY, max_lots=MAX_LO
     return df, equity, trades
 
 
+def _live_sharpe(symbol: str) -> pd.Series:
+    """Sharpe signal extended to the LATEST bar: OOS walk-forward for history,
+    then fit_full (train-on-all, predict) for the post-last-fold tail the backtest
+    folds don't cover. The OOS series alone lags by the purge (~last fold), so a
+    live read of 'today' needs the fit_full tail."""
+    close = data_loader.load_ohlc(symbol)["close"]
+    hz = INSTRUMENTS[symbol]["horizon"]
+    oos = model.walk_forward(symbol).oos_pred.dropna()
+    mdl, cols, _ = model.fit_full(symbol)
+    X = features.build_feature_matrix(symbol, dropna=True)[cols]
+    tail = X[X.index > oos.index[-1]]
+    pred = pd.concat([oos, pd.Series(mdl.predict(tail), index=tail.index)]) if len(tail) else oos
+    fc = signal.horizon_forecast_vol(close, hz).reindex(pred.index)
+    return (pred / fc).replace([np.inf, -np.inf], np.nan)
+
+
 def live_signal(symbol: str, *, max_lots=MAX_LOTS) -> dict:
     """Today's action for the PRE-REGISTERED strategy (what to actually trade):
-    walk the position to the last bar and report the position held now + the
-    action signalled today (executes at the next open). Matches what
-    forward_validation tracks, unlike the V1.4 pipeline."""
+    walk the position to the latest bar and report the position held now + the
+    action signalled today (executes at the next open). Uses fit_full-extended
+    signals so 'today' is current, not the lagging backtest OOS prediction."""
     cfg = DESIGN[symbol]
-    df, buy_days, sell_days = build_signals(symbol, cfg)
+    df, buy_days, sell_days = build_signals(symbol, cfg, sharpe_override=_live_sharpe(symbol))
     n = len(df); idx = df.index
     c, h = df["close"].to_numpy(float), df["high"].to_numpy(float)
     pos = last_buy = 0; last_buy = -10**9; peak = 0.0
