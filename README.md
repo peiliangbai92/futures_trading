@@ -76,19 +76,21 @@ pytest -q
 
 | | ES (5d) | GC (10d) |
 |---|---|---|
-| OOS rank IC | ~0.015 | ~0.07 |
-| Strategy Sharpe | ~0.43 | ~0.57 |
-| Strategy maxDD | ~−5% | ~−9% |
+| Alpha model | ridge reversion (`ret_5/ret_20`, long-only) | LightGBM (23 feat) |
+| OOS rank IC | ~0.073 | ~0.07 |
+| IS-OOS IC gap | ~−0.03 (no overfit) | ~0.43 (benign capacity) |
+| Strategy Sharpe | ~0.47 | ~0.57 |
+| Strategy maxDD | ~−4% | ~−9% |
 | Buy & hold Sharpe | ~0.55 | ~0.69 |
 | Buy & hold maxDD | ~−57% | ~−44% |
 
-The features carry only a **weak forecast** edge (OOS IC: GC > ES), yet the
-*strategy* lands close to buy-and-hold on Sharpe (0.43/0.57 vs 0.55/0.69) at
-roughly **one-sixth the drawdown** (≈−5/−9% vs −44/−57%) — the payoff of
-vol-target sizing + regime/conviction gating, not forecast skill. It still
-doesn't *beat* buy-and-hold risk-adjusted (levered to B&H vol it earns slightly
-less CAGR), but it's a credible low-drawdown profile. Treat it as validated
-plumbing with a small real edge; the larger forecast edge is still ahead.
+Both instruments now carry a **statistically significant** OOS forecast edge
+(block-bootstrap CI excludes 0). The *strategy* lands close to buy-and-hold on
+Sharpe (0.47/0.57 vs 0.55/0.69) at roughly **one-sixth the drawdown** (≈−4/−9%
+vs −44/−57%); at B&H volatility ES now matches B&H CAGR (~+9% vs +9%). It still
+doesn't *beat* buy-and-hold risk-adjusted, but it's a credible low-drawdown
+profile built on real (if modest) forecast skill. The ES edge is short-horizon
+**mean reversion** and the GC edge is **decaying** — see the V1.4 diagnosis below.
 
 > Account-size matters with micros: at $50k, vol-target sizing rounds to 0–1
 > contracts (coarse, GC sub-min-size) and Sharpe drops to ~0.3/0.4; at $220k the
@@ -164,6 +166,37 @@ sizes both cleanly and is the default. Use `--equity` to reflect your account.
 
 > Caveat: Yahoo continuous futures carry un-adjusted quarterly roll jumps (small
 > artifact in multi-day returns); Databento continuous contracts fix this in V2.
+
+### V1.4 — overfit-gap diagnosis + per-symbol model class (ridge for ES)
+
+A rigorous, adversarially-verified diagnosis (`diagnostics.py`,
+`reports/diagnostics/{ES,GC}.json`, `GAP_DIAGNOSIS.md`) settled what the
+`IS-OOS gap` meant and reshaped the ES alpha:
+
+- **The gap is benign capacity-overfit, not leakage** (ruled out 5 ways). As
+  model capacity rises, IS IC → 1.0 and the gap → 0.96 while OOS stays flat or
+  goes negative; the shuffled-label null shows ~55% of IS IC is pure
+  noise-fitting. **Stop reading IS IC / the gap as a quality signal** — judge by
+  pooled OOS IC + block-bootstrap CI.
+- **Model class is per-symbol** (`INSTRUMENTS[sym]["alpha"]`). ES is a *linear*
+  problem: the 23-feature LightGBM diluted a real signal to noise (OOS IC
+  +0.015, CI includes 0), while a **ridge sleeve on `ret_5`/`ret_20`** surfaces a
+  **significant short-horizon mean-reversion** edge (OOS IC **+0.073**,
+  block-boot 95% CI **[+0.03, +0.12]**, survives drop-top-5 + Bonferroni×40). It
+  is **long-only** (shorting ES's secular up-drift lost money) and traded at a
+  low threshold (Sharpe is a flat ~0.45–0.50 plateau across th 0.08–0.14). ES
+  Sharpe **0.43 → 0.47**, gap **+0.335 → −0.029**. GC keeps LightGBM (ridge kills
+  its genuinely nonlinear edge).
+- **GC edge is real but decaying** — full-sample +0.07 is significant, but the
+  recent half (~+0.056) is not; size GC off a haircut and watch a rolling OOS IC.
+
+```
+python -m futures_swing.diagnostics --symbol ES --experiment all   # reproduce
+```
+
+> Caveat: the ES reversion edge emerged from a config scan (survives Bonferroni)
+> and the long-only/threshold choices were picked on the full OOS backtest, so
+> **pre-register and collect forward OOS** before treating it as a live edge.
 
 ## V2 roadmap
 

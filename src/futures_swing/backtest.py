@@ -251,7 +251,8 @@ def _write_report(path: Path, symbol: str, s: dict, base: dict, regime_hits: pd.
         f"# {symbol} swing backtest (walk-forward, OOS)", "",
         f"- Period: {s['period']}  (horizon {s['horizon']}d)",
         f"- Forecast quality: OOS IC {wf.oos_ic:+.3f}, OOS hit {wf.oos_hit:.3f}, "
-        f"IS-OOS IC gap {wf.is_oos_gap:+.3f} (large => overfit)",
+        f"IS-OOS IC gap {wf.is_oos_gap:+.3f} "
+        f"({'large — capacity-overfit (benign, see GAP_DIAGNOSIS.md)' if wf.is_oos_gap > 0.15 else 'small — no capacity overfit'})",
         f"- Effective N {wf.effective_n:.0f} on {wf.n_features} features", "",
         f"## Strategy (net of micro-contract costs; sizing={s['sizing_mode']})",
         f"- {_fmt(s)}",

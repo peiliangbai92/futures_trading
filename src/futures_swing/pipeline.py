@@ -38,7 +38,9 @@ def signal_for(symbol: str, *, equity: float) -> dict:
     close = ohlc["close"]
     fc_vol = signal.horizon_forecast_vol(close, horizon).get(last_date, np.nan)
     sharpe = pred / fc_vol if fc_vol and np.isfinite(fc_vol) and fc_vol > 0 else np.nan
-    side = signal.discretize(sharpe)
+    th = signal.symbol_threshold(symbol)
+    side = signal.discretize(sharpe, long_th=th, short_th=-th,
+                             long_only=bool(spec.get("long_only")))
 
     atr_val = float(volmod.atr(ohlc, window=14).get(last_date, np.nan))
     entry = float(close.get(last_date, np.nan))
