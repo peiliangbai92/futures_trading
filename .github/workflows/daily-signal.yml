@@ -1,0 +1,93 @@
+name: daily-signal
+
+# Daily forward-tracking run for the pre-registered ES/GC V1.6 strategy.
+# Runs in GitHub's cloud (no local machine needed): refresh data -> run the
+# monitor -> if a tradeable action (BUY/EXIT) fires, open a GitHub issue (which
+# notifies the phone via the GitHub mobile app) -> commit the live log.
+
+on:
+  schedule:
+    # 23:17 UTC on weekdays = 18:17 EST / 19:17 EDT — after the 17:00 ET ES
+    # settlement, before the UTC day rolls. GitHub may delay scheduled runs by
+    # up to ~30-60 min; the off-:00 minute avoids the global top-of-hour pileup.
+    - cron: "17 23 * * 1-5"
+  workflow_dispatch: {}   # manual "Run workflow" button for testing / ad-hoc checks
+
+permissions:
+  contents: write   # commit the live log back to the repo
+  issues: write     # open the trade-signal issue
+
+concurrency:
+  group: daily-signal
+  cancel-in-progress: false
+
+jobs:
+  signal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      # Rolling cache of the raw parquets: restore the latest prior cache so a
+      # transient single-symbol yfinance failure falls back to yesterday's bar
+      # (refresh() only overwrites a key on a successful fetch), then save a fresh
+      # cache (unique key => always saved).
+      - name: Restore data cache
+        uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: data-raw-${{ github.run_id }}
+          restore-keys: |
+            data-raw-
+
+      - name: Refresh data (retry transient fetch failures)
+        run: |
+          for i in 1 2 3; do
+            if python -m futures_swing.data_loader; then exit 0; fi
+            echo "data_loader attempt $i failed; retrying in 20s..."; sleep 20
+          done
+          echo "data_loader failed after 3 attempts"; exit 1
+
+      - name: Run monitor + render alert
+        run: |
+          mkdir -p out
+          python -m futures_swing.monitor --log --json out/signals.json --issue-dir out
+
+      - name: Open GitHub issue on a tradeable signal
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f out/issue_title.txt ]; then
+            echo "No actionable signal today — staying quiet."
+            exit 0
+          fi
+          TITLE="$(cat out/issue_title.txt)"
+          ASOF="$(python -c "import json; print(json.load(open('out/signals.json'))[0]['asof'])")"
+          OPEN=$(gh issue list --state open --search "$ASOF in:title" --json number --jq 'length')
+          if [ "$OPEN" != "0" ]; then
+            echo "An open issue for $ASOF already exists — not duplicating."
+            exit 0
+          fi
+          gh issue create --title "$TITLE" --body-file out/issue_body.md \
+            && echo "Opened issue: $TITLE"
+
+      - name: Commit live log
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tracking/live_log.csv
+          if git diff --cached --quiet; then
+            echo "No live-log change to commit."
+            exit 0
+          fi
+          git commit -m "live log $(date -u +%F) [skip ci]"
+          git pull --rebase --autostash origin main || true
+          git push
