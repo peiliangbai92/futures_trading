@@ -1,3 +1,4 @@
 symbol,asof,position_now,pending_action,position_after,sharpe,exit_rule
-ES,2026-06-21,1,HOLD,1,0.025,mom20
 GC,2026-06-19,1,HOLD,1,0.512,trail
+ES,2026-06-21,1,HOLD,1,0.033,mom20
+GC,2026-06-21,1,HOLD,1,0.51,trail
