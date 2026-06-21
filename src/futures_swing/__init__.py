@@ -46,6 +46,16 @@ INSTRUMENTS = {
         # GC carries real nonlinearity only LightGBM captures (ridge kills the edge).
         "alpha": {"kind": "lgbm", "features": "all"},
         "signal_th": 0.35,
+        # GC is DE-PRIORITIZED: its edge is real but DECAYING (recent-half OOS IC
+        # ~+0.05 vs full-sample +0.07, not significant alone) and exhaustive research
+        # (models, ~25 features across price/macro/COT/precious/curves/GVZ, horizons)
+        # beat nothing; options-flow is the only open lead, deferred to V2 (GLD chain
+        # now accruing). Kept at the standard 0.10 budget = a modest 1–2 MGC on $220k
+        # (~$42–84k notional, already small). De-rating to 0.05 was tested but MGC
+        # integer rounding collapses to 0–1 contracts, killing conviction-scaling and
+        # dropping Sharpe 0.57->0.38 — so "small + clean" is 1–2 MGC at 0.10, and any
+        # further down-weight should be a BOOK-level allocation, not a vol-target cut.
+        "target_vol": 0.10,
     },
 }
 

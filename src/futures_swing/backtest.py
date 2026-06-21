@@ -73,6 +73,7 @@ def simulate(
 ) -> tuple[list[dict], pd.Series, int]:
     spec = INSTRUMENTS[symbol]
     pv, tick, horizon = spec["point_value"], spec["tick"], spec["horizon"]
+    target_vol = spec.get("target_vol", target_vol)   # per-symbol de-rate (GC runs at 0.05)
     roundtrip_cost = 2 * COMMISSION_PER_SIDE + 2 * SLIPPAGE_TICKS * tick * pv  # $ / contract
     events = load_event_dates()
     # Exit policy (V1.5). "atr": fixed ATR stop/target + horizon time-stop (default,

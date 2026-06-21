@@ -60,7 +60,8 @@ def signal_for(symbol: str, *, equity: float) -> dict:
 
     ann_vol = float(volmod.close_to_close_volatility(close, window=21).get(last_date, np.nan))
     on_event = near_event(last_date, load_event_dates())
-    qty = 0 if on_event else vol_target_size(equity, ann_vol, entry, pv, conviction_mult=conviction(sharpe))
+    tv = spec.get("target_vol", 0.10)   # per-symbol de-rate (GC runs at 0.05)
+    qty = 0 if on_event else vol_target_size(equity, ann_vol, entry, pv, target_vol=tv, conviction_mult=conviction(sharpe))
     lv = levels(side, entry, atr_val)
     if on_event:
         note = "event-blocked"
