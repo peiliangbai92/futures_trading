@@ -1,4 +1,4 @@
 symbol,asof,your_position,your_action,model_position,model_action,sharpe,exit_rule
 GC,2026-06-19,0,HOLD (flat),1,HOLD (1),0.512,trail
-ES,2026-06-21,0,HOLD (flat),1,HOLD (1),0.036,mom20
+ES,2026-06-21,0,HOLD (flat),1,HOLD (1),0.035,mom20
 GC,2026-06-21,0,HOLD (flat),1,HOLD (1),0.515,trail
