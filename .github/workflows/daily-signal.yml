@@ -11,7 +11,12 @@ on:
     # settlement, before the UTC day rolls. GitHub may delay scheduled runs by
     # up to ~30-60 min; the off-:00 minute avoids the global top-of-hour pileup.
     - cron: "17 23 * * 1-5"
-  workflow_dispatch: {}   # manual "Run workflow" button for testing / ad-hoc checks
+  workflow_dispatch:      # manual "Run workflow" button for testing / ad-hoc checks
+    inputs:
+      test_notify:
+        description: "Open a TEST issue (from the bot) to verify the phone push — ignores signals"
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # commit the live log back to the repo
@@ -65,6 +70,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if [ "${{ inputs.test_notify }}" = "true" ]; then
+            printf '✅ TEST from github-actions[bot] — verifying the phone push path. Not a real signal.\n\nIf this notified your phone, real BUY/EXIT alerts will too. Close this issue.\n\ncc @%s\n' \
+              "${{ github.repository_owner }}" > out/test_body.md
+            gh issue create --title "TEST: phone push from bot $(date -u +%F)" --body-file out/test_body.md \
+              && echo "Opened TEST issue (bot)."
+            exit 0
+          fi
           if [ ! -f out/issue_title.txt ]; then
             echo "No actionable signal today — staying quiet."
             exit 0
