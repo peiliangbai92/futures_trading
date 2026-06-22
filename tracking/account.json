@@ -1,0 +1,5 @@
+{
+  "_doc": "Your REAL book. 'go_live' = the date you start trading that symbol from FLAT; the monitor then surfaces only actions for an account that started flat at go_live and follows every signal (it does not yet ingest actual fills). To adopt the model's existing position from some past date, set that symbol's go_live earlier. To start a symbol later, set a future date.",
+  "ES": { "go_live": "2026-06-21" },
+  "GC": { "go_live": "2026-06-21" }
+}

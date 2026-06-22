@@ -27,6 +27,16 @@ REPO = Path(__file__).resolve().parents[2]
 # Tracked path (not data/signals, which is gitignored) so the daily GitHub Actions
 # run can commit the forward record back to the repo.
 LIVE_LOG = REPO / "tracking" / "live_log.csv"
+# Your real book: per-symbol go-live date (you start flat there and take only
+# fresh signals — see strategy.live_signal). Missing -> model-continuous view.
+ACCOUNT_FILE = REPO / "tracking" / "account.json"
+
+
+def load_account() -> dict:
+    try:
+        return json.loads(ACCOUNT_FILE.read_text())
+    except FileNotFoundError:
+        return {}
 
 
 def append_live_log(rows: list[dict]) -> None:
@@ -39,37 +49,40 @@ def append_live_log(rows: list[dict]) -> None:
 
 
 def render_issue(sigs: list[dict]) -> tuple[str, str] | None:
-    """If any symbol signals a tradeable action today (not HOLD), render a GitHub
-    issue (title, body) for the daily notifier. All-HOLD days return None (quiet)."""
-    actionable = [s for s in sigs if s["pending_action"] != "HOLD"]
+    """If any symbol has a tradeable action for YOUR book today (buy/add/exit),
+    render a GitHub issue (title, body). Quiet (None) when there's nothing to do."""
+    actionable = [s for s in sigs if strategy.is_actionable(s)]
     if not actionable:
         return None
     asof = max(s["asof"] for s in sigs)
-    head = ", ".join(f"{s['symbol']} {s['pending_action']}" for s in actionable)
+    head = ", ".join(f"{s['symbol']} {s['your_action']}" for s in actionable)
     title = f"Trade signal {asof}: {head}"
-    rows = ["| symbol | action | pos now → after | sharpe | exit |",
-            "|---|---|---|---|---|"]
+    rows = ["| symbol | YOUR action | your pos | model pos | sharpe | exit |",
+            "|---|---|---|---|---|---|"]
     for s in sigs:
-        b = "**" if s["pending_action"] != "HOLD" else ""
-        rows.append(f"| {b}{s['symbol']}{b} | {b}{s['pending_action']}{b} | "
-                    f"{s['position_now']} → {s['position_after']} | {s['sharpe']:+.3f} | {s['exit_rule']} |")
-    body = (f"**As of {asof}** — pre-registered V1.6 strategy. Action executes at the "
-            f"**next session open** (1 micro lot per buy, max 2 lots).\n\n" + "\n".join(rows) +
-            "\n\n_The model's mechanical signal — verify before placing. Sized for ~$220k equity; "
-            "forward-tracking is still in its early window, so treat as a heads-up, not a mandate._")
+        b = "**" if strategy.is_actionable(s) else ""
+        rows.append(f"| {b}{s['symbol']}{b} | {b}{s['your_action']}{b} | {s['your_position']} | "
+                    f"{s['model_position']} | {s['sharpe']:+.3f} | {s['exit_rule']} |")
+    body = (f"**As of {asof}** — pre-registered V1.6 strategy. Trade the **YOUR action** column "
+            f"at the **next session open** (1 micro lot per buy, max 2). _model pos_ is the model's "
+            f"continuous position, shown for context only — you do **not** chase a position the model "
+            f"opened before you went live.\n\n" + "\n".join(rows) +
+            "\n\n_Mechanical signal — verify before placing. Sized for ~$220k equity; forward-tracking "
+            "is still in its early window, so treat as a heads-up, not a mandate._")
     return title, body
 
 
 def status(symbols, as_of, do_log):
-    sigs = [strategy.live_signal(s) for s in symbols]
+    acct = load_account()
+    sigs = [strategy.live_signal(s, since=(acct.get(s) or {}).get("go_live")) for s in symbols]
     if do_log:
         append_live_log(sigs)
 
-    print("\n================ LIVE ACTION (pre-registered V1.6 strategy) ================")
-    print(f"{'symbol':6s} {'asof':12s} {'pos_now':>8s} {'today':>14s} {'pos_after':>10s} {'sharpe':>7s} {'exit':>7s}")
+    print("\n================ YOUR ACTION (pre-registered V1.6 strategy) ================")
+    print(f"{'symbol':6s} {'asof':12s} {'your_pos':>8s} {'your_action':>16s} {'model_pos':>9s} {'sharpe':>7s} {'exit':>7s}")
     for s in sigs:
-        print(f"{s['symbol']:6s} {s['asof']:12s} {s['position_now']:>8d} {s['pending_action']:>14s} "
-              f"{s['position_after']:>10d} {s['sharpe']:>+7.3f} {s['exit_rule']:>7s}")
+        print(f"{s['symbol']:6s} {s['asof']:12s} {s['your_position']:>8d} {s['your_action']:>16s} "
+              f"{s['model_position']:>9d} {s['sharpe']:>+7.3f} {s['exit_rule']:>7s}")
 
     print("\n================ FORWARD TRACKING (vs pre-registered band) ================")
     for sym in symbols:

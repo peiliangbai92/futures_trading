@@ -144,32 +144,59 @@ def _live_sharpe(symbol: str) -> pd.Series:
     return (pred / fc).replace([np.inf, -np.inf], np.nan)
 
 
-def live_signal(symbol: str, *, max_lots=MAX_LOTS) -> dict:
-    """Today's action for the PRE-REGISTERED strategy (what to actually trade):
-    walk the position to the latest bar and report the position held now + the
-    action signalled today (executes at the next open). Uses fit_full-extended
-    signals so 'today' is current, not the lagging backtest OOS prediction."""
-    cfg = DESIGN[symbol]
-    df, buy_days, sell_days = build_signals(symbol, cfg, sharpe_override=_live_sharpe(symbol))
+def _walk(df, buy_days, sell_days, cfg, max_lots, since=None) -> dict:
+    """Walk positions bar-by-bar to the last bar. ``since`` (Timestamp|None):
+    suppress NEW entries before it — the account-aware (your real book, flat at
+    go-live) view; ``None`` gives the model's continuous position."""
     n = len(df); idx = df.index
     c, h = df["close"].to_numpy(float), df["high"].to_numpy(float)
-    pos = last_buy = 0; last_buy = -10**9; peak = 0.0
     trail = cfg["sell"] == "trail"; drop = cfg.get("trail_drop", 0.08)
-    pos_now = 0; pending = "HOLD"
+    pos = 0; last_buy = -10**9; peak = 0.0
+    pos_before = 0; entered_last = exited_last = False
     for i in range(n):
         if i == n - 1:
-            pos_now = pos
-        exited = entered = False
+            pos_before = pos
+        entered = exited = False
         if pos > 0:
             peak = max(peak, h[i])
             if (trail and c[i] < peak * (1 - drop)) or (not trail and i in sell_days):
                 exited = True; pos = 0; peak = 0.0
-        if (i in buy_days) and pos < max_lots and (i - last_buy) >= cfg["cooldown"]:
+        can_buy = since is None or idx[i] >= since
+        if (i in buy_days) and can_buy and pos < max_lots and (i - last_buy) >= cfg["cooldown"]:
             pos += 1; last_buy = i; peak = max(peak, c[i]); entered = True
         if i == n - 1:
-            pending = "EXIT ALL" if exited else ("BUY 1 lot" if entered else "HOLD")
-    return dict(symbol=symbol, asof=str(idx[-1].date()), position_now=pos_now,
-                pending_action=pending, position_after=pos,
+            entered_last, exited_last = entered, exited
+    return dict(position=pos, pos_before=pos_before, entered=entered_last, exited=exited_last)
+
+
+def _describe(w: dict, flat="HOLD (flat)") -> str:
+    if w["exited"]:
+        return f"EXIT (sell {w['pos_before']})"
+    if w["entered"]:
+        return "BUY 1 lot" if w["pos_before"] == 0 else "ADD 1 lot"
+    return flat if w["position"] == 0 else f"HOLD ({w['position']})"
+
+
+def is_actionable(sig: dict) -> bool:
+    """True if today's action for YOUR book is a fill (entry / add / exit)."""
+    return sig["your_action"].startswith(("BUY", "ADD", "EXIT"))
+
+
+def live_signal(symbol: str, *, max_lots=MAX_LOTS, since=None) -> dict:
+    """Today's action for the PRE-REGISTERED strategy, in BOTH views:
+      your_*  = YOUR real book — flat until ``since`` (your go-live), then only
+                fresh signals. THIS is what to actually trade.
+      model_* = the model's continuous position (context only: it may be mid-trade
+                from an entry before you went live — you do NOT chase that).
+    Uses fit_full-extended signals so 'today' is current, not the lagging OOS."""
+    cfg = DESIGN[symbol]
+    df, buy_days, sell_days = build_signals(symbol, cfg, sharpe_override=_live_sharpe(symbol))
+    since_ts = pd.Timestamp(since) if since is not None else None
+    model = _walk(df, buy_days, sell_days, cfg, max_lots, since=None)
+    you = _walk(df, buy_days, sell_days, cfg, max_lots, since=since_ts)
+    return dict(symbol=symbol, asof=str(df.index[-1].date()),
+                your_position=you["position"], your_action=_describe(you),
+                model_position=model["position"], model_action=_describe(model),
                 sharpe=round(float(df["sharpe"].iloc[-1]), 3), exit_rule=cfg["sell"])
 
 
