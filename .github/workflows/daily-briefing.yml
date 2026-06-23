@@ -1,0 +1,99 @@
+name: daily-briefing
+
+# Daily ES/GC heads-up at the futures open (~3pm PT), EVERY trading day — signal
+# description + price levels — regardless of whether there's a tradeable action.
+# (The separate daily-signal workflow stays quiet unless a BUY/EXIT fires.)
+#
+# GitHub cron is UTC-only and does NOT follow daylight saving, so we schedule at
+# BOTH 22:00 UTC (= 3pm PDT, summer) and 23:00 UTC (= 3pm PST, winter); a PT-hour
+# guard + per-date dedupe make exactly one post land at ~3pm PT year-round.
+
+on:
+  schedule:
+    - cron: "0 22 * * 1-5"   # 3pm PDT (summer)
+    - cron: "0 23 * * 1-5"   # 3pm PST (winter)
+  workflow_dispatch: {}       # manual test (guard is skipped for manual runs)
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: daily-briefing
+  cancel-in-progress: false
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: PT time + DST guard
+        id: guard
+        run: |
+          PTDATE=$(TZ=America/Los_Angeles date +%F)
+          PTHOUR=$(TZ=America/Los_Angeles date +%H)
+          echo "ptdate=$PTDATE" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "schedule" ] && { [ "$PTHOUR" -lt 15 ] || [ "$PTHOUR" -gt 16 ]; }; then
+            echo "PT hour $PTHOUR is not ~3pm — this UTC schedule isn't 3pm PT today (DST). Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false (PT $PTDATE ${PTHOUR}:00)"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore data cache
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: data-raw-brief-${{ github.run_id }}
+          restore-keys: |
+            data-raw-
+
+      - name: Refresh data (retry transient fetch failures)
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          for i in 1 2 3; do
+            if python -m futures_swing.data_loader; then exit 0; fi
+            echo "data_loader attempt $i failed; retrying in 20s..."; sleep 20
+          done
+          echo "data_loader failed after 3 attempts"; exit 1
+
+      - name: Render briefing
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          BRIEF_DATE: ${{ steps.guard.outputs.ptdate }}
+        run: |
+          mkdir -p out
+          python -m futures_swing.briefing --out out/briefing.md
+
+      - name: Post briefing (one persistent issue, daily comment, deduped)
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PTDATE="${{ steps.guard.outputs.ptdate }}"
+          TITLE="📋 ES/GC daily briefing"
+          printf '\n\ncc @%s\n' "${{ github.repository_owner }}" >> out/briefing.md
+          N=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          if [ -z "$N" ]; then
+            gh issue create --title "$TITLE" --body-file out/briefing.md && echo "Created briefing thread."
+            exit 0
+          fi
+          SEEN=$(gh issue view "$N" --json body,comments \
+                  --jq '(.body) + " " + ((.comments // []) | map(.body) | join(" "))' | grep -c "$PTDATE" || true)
+          if [ "$SEEN" != "0" ]; then
+            echo "Briefing for $PTDATE already posted on #$N — skipping."
+            exit 0
+          fi
+          gh issue comment "$N" --body-file out/briefing.md && echo "Posted briefing for $PTDATE on #$N."
