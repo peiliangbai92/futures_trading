@@ -2,7 +2,8 @@
 signal-map study, with position management (1 lot per buy, max 2) and costs.
 
 ES (mean-reversion):
-  BUY  ridge sharpe >= +0.20, de-clustered by a 15d cooldown (keep strongest).
+  BUY  ridge sharpe >= +0.20, de-clustered by a 15d cooldown (keep the FIRST
+       crossing — causal; see _cluster_first).
   EXIT (all) when 20d momentum rolls negative (sell the rip).
 GC (trend):
   BUY  lgbm sharpe >= +0.30 OR a fresh 40d-high breakout, 20d cooldown.
@@ -37,16 +38,18 @@ DESIGN = {
 
 
 def _cluster_first(cands, cooldown):
-    """Keep the strongest signal per cooldown window (cands: [(i, strength)])."""
-    cands = sorted(cands); kept, last, i = [], -10**9, 0
-    while i < len(cands):
-        j = i
-        while j + 1 < len(cands) and cands[j + 1][0] - cands[i][0] < cooldown:
-            j += 1
-        best = max(cands[i:j + 1], key=lambda t: t[1])
-        if best[0] - last >= cooldown:
-            kept.append(best[0]); last = best[0]
-        i = j + 1
+    """Keep the FIRST signal of each cooldown window (cands: [(i, strength)]).
+
+    Causal de-cluster: take the first threshold crossing, then ignore further
+    crossings for ``cooldown`` bars. The earlier "keep the strongest in the
+    window" rule was LOOK-AHEAD — on the first hot day you cannot know a stronger
+    day is coming — which inflated the backtest (ES Sharpe 0.88 -> 0.64 honest)
+    and made the live buy day reassign itself as new bars arrived. Buying the
+    first crossing is what's actually tradeable, and the decision is final."""
+    kept, last = [], -10**9
+    for i, _ in sorted(cands):
+        if i - last >= cooldown:
+            kept.append(i); last = i
     return set(kept)
 
 

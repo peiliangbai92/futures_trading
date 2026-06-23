@@ -8,11 +8,11 @@
     "trail_win": 60,
     "breakout": 40
   },
-  "freeze_date": "2026-06-05",
-  "baseline_sharpe": 0.6387328302645618,
+  "freeze_date": "2026-06-08",
+  "baseline_sharpe": 0.5996879871523985,
   "expected_sharpe_90pct": [
-    0.319755851191447,
-    1.006290896840997
+    0.2721308556707852,
+    0.9667159143232376
   ],
   "note": "forecasts OOS; rule params in-sample. Evaluate realized Sharpe on dates AFTER freeze_date; kill if it sits below the lower band for 6+ months."
 }

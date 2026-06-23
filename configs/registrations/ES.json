@@ -6,11 +6,11 @@
     "sell": "mom20",
     "breakout": 0
   },
-  "freeze_date": "2026-06-12",
-  "baseline_sharpe": 0.8721094178751448,
+  "freeze_date": "2026-06-15",
+  "baseline_sharpe": 0.6365642229898352,
   "expected_sharpe_90pct": [
-    0.5669499704886878,
-    1.2711779317642606
+    0.3179158505866639,
+    0.9989987496201282
   ],
   "note": "forecasts OOS; rule params in-sample. Evaluate realized Sharpe on dates AFTER freeze_date; kill if it sits below the lower band for 6+ months."
 }
