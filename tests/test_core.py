@@ -137,3 +137,34 @@ def test_compute_signals_columns_and_thresholds():
     sig = signal.compute_signals("ES", pred)
     assert set(sig.columns) == {"pred_ret", "fc_vol", "sharpe", "signal"}
     assert set(sig["signal"].dropna().unique()) <= {-1, 0, 1}
+
+
+def test_circuit_breaker_trips_and_is_sticky(monkeypatch, tmp_path):
+    """Drawdown / consecutive-loss tripwires fire, stay halted until reset (no data)."""
+    from futures_swing import circuit_breaker as cb
+
+    def metrics(dd, cl):
+        return lambda symbols=("ES", "GC"): dict(
+            dd=dd, hwm=232000.0, equity=232000.0 * (1 + dd),
+            max_consec_loss=cl, per={"ES": {"consec_loss": cl}})
+
+    monkeypatch.setattr(cb, "STATE_FILE", tmp_path / "cb.json")
+    # within limits -> not halted
+    monkeypatch.setattr(cb, "book_metrics", metrics(-0.02, 2))
+    assert not cb.evaluate(persist=True)["halted"]
+    # 8% drawdown -> trips
+    monkeypatch.setattr(cb, "book_metrics", metrics(-0.09, 1))
+    r = cb.evaluate(persist=True)
+    assert r["halted"] and r["newly_tripped"] and any("drawdown" in b for b in r["breaches"])
+    # sticky: stays halted after metrics recover, but no longer "newly"
+    monkeypatch.setattr(cb, "book_metrics", metrics(0.0, 0))
+    r = cb.evaluate(persist=True)
+    assert r["halted"] and not r["newly_tripped"]
+    # reset re-enables
+    cb.reset()
+    assert not cb.evaluate(persist=False)["halted"]
+    # consecutive-loss tripwire fires on its own
+    monkeypatch.setattr(cb, "STATE_FILE", tmp_path / "cb2.json")
+    monkeypatch.setattr(cb, "book_metrics", metrics(-0.01, cb.CONSEC_LOSS))
+    r = cb.evaluate(persist=False)
+    assert r["halted"] and any("consecutive" in b for b in r["breaches"])

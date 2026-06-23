@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import strategy
+from . import circuit_breaker, strategy
 from .forward_validation import REG_DIR, evaluate
 
 REPO = Path(__file__).resolve().parents[2]
@@ -48,22 +48,37 @@ def append_live_log(rows: list[dict]) -> None:
     df.to_csv(LIVE_LOG, index=False)
 
 
-def render_issue(sigs: list[dict]) -> tuple[str, str] | None:
-    """If any symbol has a tradeable action for YOUR book today (buy/add/exit),
-    render a GitHub issue (title, body). Quiet (None) when there's nothing to do."""
+def render_issue(sigs: list[dict], cb: dict | None = None) -> tuple[str, str] | None:
+    """Render the GitHub issue (title, body) when there's something to push: a
+    tradeable action for YOUR book, OR a freshly-tripped circuit breaker. Quiet
+    (None) otherwise. A halted breaker prepends a red banner."""
     actionable = [s for s in sigs if strategy.is_actionable(s)]
-    if not actionable:
+    halted = bool(cb and cb.get("halted"))
+    newly = bool(cb and cb.get("newly_tripped"))
+    if not actionable and not newly:
         return None
     asof = max(s["asof"] for s in sigs)
-    head = ", ".join(f"{s['symbol']} {s['your_action']}" for s in actionable)
-    title = f"Trade signal {asof}: {head}"
+    head = []
+    if newly:
+        head.append("🛑 CIRCUIT BREAKER TRIPPED")
+    if actionable:
+        head.append(", ".join(f"{s['symbol']} {s['your_action']}" for s in actionable))
+    title = f"Trade signal {asof}: " + " · ".join(head)
+    banner = ""
+    if halted:
+        banner = (f"## 🛑 CIRCUIT BREAKER {'TRIPPED' if newly else 'ACTIVE'} — entries HALTED (only-close)\n"
+                  f"**Reason:** {cb.get('reason')}\n"
+                  f"book drawdown {cb['dd']*100:+.1f}% (HWM {cb['hwm']:.0f}) · "
+                  f"max consecutive losses {cb['max_consec_loss']}\n\n"
+                  f"Close-only until you investigate and re-enable: "
+                  f"`python -m futures_swing.circuit_breaker --reset`\n\n")
     rows = ["| symbol | YOUR action | your pos | model pos | sharpe | exit |",
             "|---|---|---|---|---|---|"]
     for s in sigs:
         b = "**" if strategy.is_actionable(s) else ""
         rows.append(f"| {b}{s['symbol']}{b} | {b}{s['your_action']}{b} | {s['your_position']} | "
                     f"{s['model_position']} | {s['sharpe']:+.3f} | {s['exit_rule']} |")
-    body = (f"**As of {asof}** — pre-registered V1.6 strategy. Trade the **YOUR action** column "
+    body = (banner + f"**As of {asof}** — pre-registered V1.6 strategy. Trade the **YOUR action** column "
             f"at the **next session open** (1 micro lot per buy, max 2). _model pos_ is the model's "
             f"continuous position, shown for context only — you do **not** chase a position the model "
             f"opened before you went live.\n\n" + "\n".join(rows) +
@@ -75,8 +90,21 @@ def render_issue(sigs: list[dict]) -> tuple[str, str] | None:
 def status(symbols, as_of, do_log):
     acct = load_account()
     sigs = [strategy.live_signal(s, since=(acct.get(s) or {}).get("go_live")) for s in symbols]
+    cb = circuit_breaker.evaluate(tuple(symbols), persist=do_log, as_of=as_of)
+    if cb["halted"]:                       # halted => suppress new entries (only-close)
+        for s in sigs:
+            if s["your_action"].startswith(("BUY", "ADD")):
+                s["your_action"] = "HALT-no entry"
     if do_log:
         append_live_log(sigs)
+
+    if cb["halted"]:
+        print(f"\n🛑 CIRCUIT BREAKER: HALTED (only-close) — {cb['reason']}")
+        print(f"   book DD {cb['dd']*100:+.1f}% (HWM {cb['hwm']:.0f}) · max consec losses {cb['max_consec_loss']}"
+              f"   ·  re-enable: python -m futures_swing.circuit_breaker --reset")
+    else:
+        print(f"\n✅ circuit breaker OK — book DD {cb['dd']*100:+.1f}% / -{int(circuit_breaker.MAX_DD*100)}% · "
+              f"max consec losses {cb['max_consec_loss']}/{circuit_breaker.CONSEC_LOSS}")
 
     print("\n================ YOUR ACTION (pre-registered V1.6 strategy) ================")
     print(f"{'symbol':6s} {'asof':12s} {'your_pos':>8s} {'your_action':>16s} {'model_pos':>9s} {'sharpe':>7s} {'exit':>7s}")
@@ -94,7 +122,7 @@ def status(symbols, as_of, do_log):
               f"(band low {reg['expected_sharpe_90pct'][0]:+.2f}) | forward {ev['fwd_days']}d "
               f"→ live {ev['live_sharpe']:+.2f}  ⇒  {ev['verdict']}")
     print("\n(kill rule: live Sharpe below the band low for 6+ months → investigate / pull.)")
-    return sigs
+    return sigs, cb
 
 
 def main():
@@ -107,14 +135,14 @@ def main():
                     help="if a tradeable action fires, write issue_title.txt + issue_body.md here")
     args = ap.parse_args()
     as_of = args.as_of or str(pd.Timestamp.today().date())
-    sigs = status(args.symbols, as_of, args.log)
+    sigs, cb = status(args.symbols, as_of, args.log)
 
     if args.json:
         p = Path(args.json); p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(sigs, indent=2))
     if args.issue_dir:
         d = Path(args.issue_dir); d.mkdir(parents=True, exist_ok=True)
-        rendered = render_issue(sigs)
+        rendered = render_issue(sigs, cb)
         if rendered:
             (d / "issue_title.txt").write_text(rendered[0])
             (d / "issue_body.md").write_text(rendered[1])
