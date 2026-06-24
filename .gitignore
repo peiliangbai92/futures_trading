@@ -12,3 +12,6 @@ data/signals/*.csv
 reports/
 outputs/
 *.png
+
+# Intraday MVP caches
+data/intraday/*.parquet
