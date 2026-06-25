@@ -19,6 +19,7 @@ from pathlib import Path
 from . import INSTRUMENTS, data_loader, strategy
 from . import vol as volmod
 from .execution import levels
+from .intraday import gold_gamma
 
 ACCOUNT_FILE = data_loader.REPO_ROOT / "tracking" / "account.json"
 
@@ -45,6 +46,58 @@ def _stats(symbol: str, sig: dict) -> dict:
                 stop=lv["stop"], target=lv["target"], sig=sig)
 
 
+GAMMA_REQUIRED = ("regime", "regime_label", "conv", "asof", "below", "above")
+GAMMA_STALE_DAYS = 4   # > a long weekend → OI/levels too old to show as live
+
+
+def _stale_days(asof: str, brief_date: str) -> int | None:
+    from datetime import date
+    try:
+        return (date.fromisoformat(brief_date[:10]) - date.fromisoformat(asof[:10])).days
+    except ValueError:
+        return None
+
+
+def _level(x: dict) -> str:
+    """One mapped level with its tags + gamma sign (+g cushion / -g accelerant)."""
+    tag = " (line-in-sand)" if x.get("line_in_sand") else (" (call wall)" if x.get("call_wall") else "")
+    g = "+g" if x.get("sign", 0) > 0 else "-g"
+    return f"{x['gc']:.0f}{tag} {g}"
+
+
+def _gamma_lines(brief_date: str) -> list[str]:
+    """GC options-structure levels from the committed GLD-gamma snapshot. Empty when
+    the snapshot is absent/partial (e.g. CI without QR) so the briefing still runs.
+    Strikes carry a +g/-g sign: +g = dealer-long (cushion/pin), -g = short (accelerant);
+    side names are geometric (below/above spot), NOT a promise of support/resistance."""
+    snap = gold_gamma.load_snapshot()
+    if not snap or not all(k in snap for k in GAMMA_REQUIRED):
+        return []
+    days = _stale_days(snap["asof"], brief_date)
+    if days is not None and days > GAMMA_STALE_DAYS:   # too old → suppress specific levels
+        return [f"**GC gamma map** — unavailable (snapshot {days}d stale, as of {snap['asof']}; "
+                f"regenerate via `python -m futures_swing.intraday.gold_gamma`).", ""]
+    stale = f" ⚠ as of {snap['asof']}" if days and days > 0 else ""
+    icon = {-1: "🔴", 1: "🟢", 0: "⚪"}.get(snap["regime"], "⚪")
+    below = " · ".join(_level(x) for x in snap["below"]) or "n/a"
+    above = " · ".join(_level(x) for x in snap["above"]) or "n/a"
+    centroid = snap.get("centroid_gc"); dpivot = snap.get("downside_pivot_gc")
+    lines = [
+        f"**GC gamma map** (GLD options → GC ×{snap['conv']:.1f}{stale}) — {icon} {snap['regime_label']}",
+        f"- below spot: {below}",
+        f"- above spot: {above} · centroid {centroid if centroid is not None else 'n/a'} "
+        f"· down-pivot {dpivot if dpivot is not None else 'n/a'}",
+    ]
+    if snap["regime"] < 0:
+        lines.append("- read: short-gamma — **neither** dips nor rallies dealer-cushioned. "
+                     "-g levels are accelerants (price gets drawn to them, then runs on a break); "
+                     "+g levels can still pin/cap locally.")
+    elif snap["regime"] > 0:
+        lines.append("- read: long-gamma — dealers dampen moves; these levels tend to hold (mean-revert).")
+    lines.append("")
+    return lines
+
+
 def render(symbols: list[str], brief_date: str) -> str:
     acct = _account()
     rows = []
@@ -66,6 +119,11 @@ def render(symbols: list[str], brief_date: str) -> str:
             f"- you: {you} · model: {sig['model_action']}",
             "",
         ]
+        if sym == "GC":
+            try:                       # the gamma map is a nice-to-have — never let it kill the post
+                lines += _gamma_lines(brief_date)
+            except Exception as e:
+                lines += [f"_(GC gamma map skipped: {type(e).__name__})_", ""]
     actionable = [r["sig"] for r in rows if strategy.is_actionable(r["sig"])]
     if actionable:
         lines.append("→ **Action at this open:** "

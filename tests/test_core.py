@@ -139,6 +139,103 @@ def test_compute_signals_columns_and_thresholds():
     assert set(sig["signal"].dropna().unique()) <= {-1, 0, 1}
 
 
+# --------------------------------------------------------------- GC gamma map
+
+def _write_gld_profile(root, date="2026-06-24"):
+    """Minimal synthetic GLD profile (candidate.json + strike_profile.csv) for compute()."""
+    import json as _json
+
+    d = root / "GLD" / date
+    d.mkdir(parents=True)
+    (d / "candidate.json").write_text(_json.dumps({
+        "snapshot_spot": 100.0, "prior_close": 100.0, "net_gamma": -1e8,
+        "speed_direction": "net_negative", "centroid_low": 100.0,
+        "upside_pivot": 108.0, "downside_pivot": 92.0,
+        "line_in_the_sand": [90.0], "qualitative_tags": ["sticky"],
+    }))
+    rows = [  # strike, oi, gamma_exposure
+        (90, 1000, -5e7), (95, 800, -3e7),          # below: short-gamma accelerants
+        (105, 900, 4e7), (110, 2000, 1e7),          # above: long-gamma caps
+        (115, 5000, -2e7),                          # above: huge OI but NEGATIVE gamma
+    ]
+    pd.DataFrame(rows, columns=["strike", "openinterest", "gamma_exposure"]).to_csv(
+        d / "strike_profile.csv", index=False)
+    return date
+
+
+def test_gold_gamma_compute_signs_and_callwall(monkeypatch, tmp_path):
+    from futures_swing.intraday import gamma as igamma
+    from futures_swing.intraday import gold_gamma
+
+    date = _write_gld_profile(tmp_path)
+    monkeypatch.setattr(igamma, "PROFILE_DIR", tmp_path)
+    monkeypatch.setattr(gold_gamma, "_conversion", lambda spot, d: (10.0, 1000.0))
+    snap = gold_gamma.compute(date)
+
+    assert snap["regime"] == -1 and "SHORT" in snap["regime_label"]
+    assert all(x["sign"] == -1 for x in snap["below"])           # below-spot strikes are accelerants
+    assert next(x for x in snap["below"] if x["gld"] == 90.0)["line_in_sand"]
+    # call wall = heaviest-OI POSITIVE-gamma strike above spot (110), NOT the 5000-OI -g 115
+    cw = [x for x in snap["above"] if x.get("call_wall")]
+    assert len(cw) == 1 and cw[0]["gld"] == 110.0
+    assert not any(x.get("call_wall") for x in snap["above"] if x["gld"] == 115.0)
+
+
+def test_gold_gamma_unknown_regime_and_bad_spot(monkeypatch, tmp_path):
+    import json as _json
+
+    from futures_swing.intraday import gamma as igamma
+    from futures_swing.intraday import gold_gamma
+
+    monkeypatch.setattr(igamma, "PROFILE_DIR", tmp_path)
+    monkeypatch.setattr(gold_gamma, "_conversion", lambda spot, d: (10.0, 1000.0))
+    d = tmp_path / "GLD" / "2026-06-24"
+    d.mkdir(parents=True)
+    (d / "candidate.json").write_text(_json.dumps({"snapshot_spot": 100.0, "net_gamma": None}))
+    pd.DataFrame([(95, 1, 1.0)], columns=["strike", "openinterest", "gamma_exposure"]).to_csv(
+        d / "strike_profile.csv", index=False)
+    snap = gold_gamma.compute("2026-06-24")
+    assert snap["regime"] == 0 and snap["net_gamma"] is None     # null gamma != mislabeled LONG
+    import json as _j
+    _j.dumps(snap, allow_nan=False)                              # strict JSON (no literal NaN)
+    # missing spot -> explicit error, not a silent NaN map
+    (d / "candidate.json").write_text(_json.dumps({"net_gamma": -1.0}))
+    with pytest.raises(ValueError):
+        gold_gamma.compute("2026-06-24")
+
+
+def test_gold_gamma_load_snapshot_hardening(tmp_path):
+    from futures_swing.intraday import gold_gamma
+
+    assert gold_gamma.load_snapshot(tmp_path / "absent.json") is None     # missing
+    assert gold_gamma.load_snapshot(tmp_path) is None                     # a directory (OSError)
+    p = tmp_path / "s.json"
+    p.write_text("[]");  assert gold_gamma.load_snapshot(p) is None       # valid JSON, not a dict
+    p.write_text("{bad"); assert gold_gamma.load_snapshot(p) is None      # malformed
+
+
+def test_briefing_gamma_section_degrades_and_flags_stale(monkeypatch):
+    from futures_swing import briefing
+    from futures_swing.intraday import gold_gamma
+
+    # absent -> no lines (CI-without-QR path)
+    monkeypatch.setattr(gold_gamma, "load_snapshot", lambda *a, **k: None)
+    assert briefing._gamma_lines("2026-06-24") == []
+    # partial-but-truthy snapshot -> no KeyError, no lines (the production-blocker fix)
+    monkeypatch.setattr(gold_gamma, "load_snapshot", lambda *a, **k: {"asof": "2026-06-24"})
+    assert briefing._gamma_lines("2026-06-24") == []
+    # complete + fresh -> renders levels; stale -> suppresses specific levels
+    full = {"regime": -1, "regime_label": "net SHORT gamma", "conv": 10.9, "asof": "2026-06-24",
+            "below": [{"gc": 3940, "sign": -1, "line_in_sand": True}],
+            "above": [{"gc": 4380, "sign": 1, "call_wall": True}], "centroid_gc": 4010,
+            "downside_pivot_gc": 3915}
+    monkeypatch.setattr(gold_gamma, "load_snapshot", lambda *a, **k: full)
+    assert any("below spot" in ln for ln in briefing._gamma_lines("2026-06-24"))
+    stale = briefing._gamma_lines("2026-07-10")
+    assert any("unavailable" in ln and "stale" in ln for ln in stale)
+    assert not any("below spot" in ln for ln in stale)
+
+
 def test_circuit_breaker_trips_and_is_sticky(monkeypatch, tmp_path):
     """Drawdown / consecutive-loss tripwires fire, stay halted until reset (no data)."""
     from futures_swing import circuit_breaker as cb

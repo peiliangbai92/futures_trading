@@ -1,0 +1,78 @@
+{
+  "asof": "2026-06-24",
+  "gamma_symbol": "GLD",
+  "conv": 10.949,
+  "gld_spot": 366.0,
+  "gc_ref": 4007.5,
+  "regime": -1,
+  "regime_label": "net SHORT gamma \u2014 moves amplified, levels are defend-or-break",
+  "speed_dir": "net_negative",
+  "net_gamma": -895160037.6532553,
+  "centroid_gc": 4010,
+  "flip_gc": null,
+  "upside_pivot_gc": 4100,
+  "downside_pivot_gc": 3915,
+  "line_in_sand_gc": 3940,
+  "below": [
+    {
+      "gc": 3940,
+      "gld": 360.0,
+      "oi": 169225,
+      "gex": -306841639.5865123,
+      "sign": -1,
+      "line_in_sand": true
+    },
+    {
+      "gc": 3885,
+      "gld": 355.0,
+      "oi": 47187,
+      "gex": -82243102.31959476,
+      "sign": -1,
+      "line_in_sand": false
+    },
+    {
+      "gc": 3830,
+      "gld": 350.0,
+      "oi": 165161,
+      "gex": -160624991.28810555,
+      "sign": -1,
+      "line_in_sand": false
+    }
+  ],
+  "above": [
+    {
+      "gc": 4050,
+      "gld": 370.0,
+      "oi": 62539,
+      "gex": 93095100.69609024,
+      "sign": 1
+    },
+    {
+      "gc": 4105,
+      "gld": 375.0,
+      "oi": 64713,
+      "gex": 49873380.071944535,
+      "sign": 1
+    },
+    {
+      "gc": 4160,
+      "gld": 380.0,
+      "oi": 86712,
+      "gex": 46002515.33054251,
+      "sign": 1
+    },
+    {
+      "gc": 4380,
+      "gld": 400.0,
+      "oi": 143264,
+      "gex": 30603932.192850243,
+      "sign": 1,
+      "call_wall": true
+    }
+  ],
+  "tags": [
+    "defending_upside",
+    "sticky",
+    "vol_sold"
+  ]
+}
