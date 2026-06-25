@@ -46,26 +46,39 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
-      - name: ET session guard (map UTC cron -> ET session, DST-safe)
+      - name: Session guard (session from the CRON, not wall-clock — delay-proof)
         id: guard
         run: |
+          # GitHub scheduled runs are routinely delayed 30-90+ min, so we must NOT
+          # infer the session from the execution wall-clock. github.event.schedule
+          # is the exact cron that triggered THIS run, so it names the session even
+          # if GitHub fires it late. The two crons per session are the DST pair; the
+          # per-(date,session) dedupe drops the redundant one. An earliness gate
+          # rejects only the off-DST cron that would fire ~1h before the open.
           ETDATE=$(TZ=America/New_York date +%F)
-          ETHOUR=$(TZ=America/New_York date +%H)
+          NOW=$((10#$(TZ=America/New_York date +%H%M)))   # ET HHMM, base-10 (avoid octal 08/09)
           echo "etdate=$ETDATE" >> "$GITHUB_OUTPUT"
+          EARLIEST=0
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             SESSION="${{ github.event.inputs.session }}"
             if [ "$SESSION" = "auto" ] || [ -z "$SESSION" ]; then
-              if [ "$((10#$ETHOUR))" -lt 12 ]; then SESSION="morning"; else SESSION="evening"; fi
+              if [ "$NOW" -lt 1200 ]; then SESSION="morning"; else SESSION="evening"; fi
             fi
-          elif [ "$ETHOUR" = "09" ]; then SESSION="morning"
-          elif [ "$ETHOUR" = "18" ]; then SESSION="evening"
           else
-            echo "ET hour $ETHOUR isn't a session open (wrong-DST cron) — skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+            case "${{ github.event.schedule }}" in
+              "30 13 * * 1-5"|"30 14 * * 1-5") SESSION="morning"; EARLIEST=900  ;;  # open 09:30 ET
+              "0 22 * * 1-5"|"0 23 * * 1-5")   SESSION="evening"; EARLIEST=1730 ;;  # open 18:00 ET
+              *) echo "unexpected schedule '${{ github.event.schedule }}' — skipping";
+                 echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            esac
+            if [ "$NOW" -lt "$EARLIEST" ]; then
+              echo "ET $NOW is before the $SESSION window ($EARLIEST) — off-DST early fire; the season-correct cron will post. Skipping."
+              echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+            fi
           fi
           echo "session=$SESSION" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
-          echo "Session: $SESSION  (ET $ETDATE ${ETHOUR}h)"
+          echo "Session: $SESSION  (ET $ETDATE, now $NOW)"
 
       - name: Restore data cache
         if: steps.guard.outputs.skip != 'true'
