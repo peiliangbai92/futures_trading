@@ -44,7 +44,10 @@ GLD_GC_FALLBACK = 10.9 # ~ GC/GLD ratio if a same-day GC bar is missing (holiday
 def _conversion(gld_spot: float, date: str) -> tuple[float, float]:
     """GLD->GC factor = GC_close / GLD_spot. Falls back to the latest available GC
     close / a constant ratio when the date has no GC bar. Returns (factor, gc_ref)."""
-    close = data_loader.load_ohlc("GC")["close"]
+    try:
+        close = data_loader.load_ohlc("GC")["close"]
+    except Exception:                       # no GC cache (e.g. fresh CI checkout) -> fall back
+        close = pd.Series(dtype=float)
     gc = None if close.empty else close.get(pd.Timestamp(date))
     if gc is None or not np.isfinite(gc):
         gc = float(close.iloc[-1]) if not close.empty else float("nan")  # most recent settle
