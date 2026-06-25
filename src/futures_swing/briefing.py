@@ -23,6 +23,11 @@ from .intraday import gold_gamma
 
 ACCOUNT_FILE = data_loader.REPO_ROOT / "tracking" / "account.json"
 
+# Two daily reports, same content, different open: the US cash open and the
+# futures reopen. The label is cosmetic; the morning read is on the in-progress
+# bar (signal not final until the 5pm ET settle), so it's flagged as preliminary.
+SESSIONS = {"morning": "US cash open · 9:30am ET", "evening": "futures open · 6pm ET"}
+
 
 def _account() -> dict:
     try:
@@ -98,14 +103,15 @@ def _gamma_lines(brief_date: str) -> list[str]:
     return lines
 
 
-def render(symbols: list[str], brief_date: str) -> str:
+def render(symbols: list[str], brief_date: str, session: str = "evening") -> str:
     acct = _account()
     rows = []
     for s in symbols:
         sig = strategy.live_signal(s, since=(acct.get(s) or {}).get("go_live"))
         rows.append(_stats(s, sig))
 
-    lines = [f"## 📋 ES / GC daily briefing — {brief_date} (futures open, ~3pm PT)", ""]
+    label = SESSIONS.get(session, SESSIONS["evening"])
+    lines = [f"## 📋 ES / GC daily briefing — {brief_date} ({label})", ""]
     for r in rows:
         sig, sym = r["sig"], r["symbol"]
         th = strategy.DESIGN[sym]["buy_th"]
@@ -129,8 +135,10 @@ def render(symbols: list[str], brief_date: str) -> str:
         lines.append("→ **Action at this open:** "
                      + ", ".join(f"{s['symbol']} {s['your_action']}" for s in actionable))
     else:
-        lines.append("→ No action at this open — stay flat. "
-                     "(A separate alert fires only on a BUY/EXIT.)")
+        lines.append("→ No action at this open — stay flat.")
+    lines.append("_Morning read on the in-progress bar — the daily signal isn't final until the "
+                 "5pm ET settle; the 6pm ET briefing is authoritative._" if session == "morning"
+                 else "_A separate alert fires only on a BUY/EXIT._")
     return "\n".join(lines)
 
 
@@ -139,9 +147,11 @@ def main() -> None:
     ap.add_argument("--symbols", nargs="+", default=["ES", "GC"])
     ap.add_argument("--out", default="out/briefing.md")
     ap.add_argument("--date", default=os.environ.get("BRIEF_DATE", ""))
+    ap.add_argument("--session", default=os.environ.get("BRIEF_SESSION", "evening"),
+                    choices=["morning", "evening"])
     args = ap.parse_args()
     brief_date = args.date or str(data_loader.load_ohlc(args.symbols[0]).index[-1].date())
-    md = render(args.symbols, brief_date)
+    md = render(args.symbols, brief_date, session=args.session)
     p = Path(args.out); p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(md)
     print(md)

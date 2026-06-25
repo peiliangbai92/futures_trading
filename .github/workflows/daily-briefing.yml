@@ -1,18 +1,27 @@
 name: daily-briefing
 
-# Daily ES/GC heads-up at the futures open (~3pm PT), EVERY trading day — signal
-# description + price levels — regardless of whether there's a tradeable action.
+# TWO daily ES/GC heads-up reports — signal status + price levels (+ GC gamma
+# map) — every trading day, regardless of whether there's a tradeable action:
+#   • morning  = US cash open,  09:30 ET
+#   • evening  = futures reopen, 18:00 ET
 # (The separate daily-signal workflow stays quiet unless a BUY/EXIT fires.)
 #
-# GitHub cron is UTC-only and does NOT follow daylight saving, so we schedule at
-# BOTH 22:00 UTC (= 3pm PDT, summer) and 23:00 UTC (= 3pm PST, winter); a PT-hour
-# guard + per-date dedupe make exactly one post land at ~3pm PT year-round.
+# GitHub cron is UTC-only and DST-blind, so each session is scheduled at BOTH its
+# summer (EDT) and winter (EST) UTC time; an ET-hour guard maps each fire to a
+# session (09→morning, 18→evening) and rejects the wrong-DST one. A per-(date,
+# session) marker dedupes so both reports land exactly once each.
 
 on:
   schedule:
-    - cron: "0 22 * * 1-5"   # 3pm PDT (summer)
-    - cron: "0 23 * * 1-5"   # 3pm PST (winter)
-  workflow_dispatch: {}       # manual test (guard is skipped for manual runs)
+    - cron: "30 13 * * 1-5"   # 09:30 EDT (summer) — cash open
+    - cron: "30 14 * * 1-5"   # 09:30 EST (winter) — cash open
+    - cron: "0 22 * * 1-5"    # 18:00 EDT (summer) — futures open
+    - cron: "0 23 * * 1-5"    # 18:00 EST (winter) — futures open
+  workflow_dispatch:
+    inputs:
+      session:
+        description: "morning | evening | auto (pick by ET hour)"
+        default: "auto"
 
 permissions:
   contents: read
@@ -37,19 +46,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
-      - name: PT time + DST guard
+      - name: ET session guard (map UTC cron -> ET session, DST-safe)
         id: guard
         run: |
-          PTDATE=$(TZ=America/Los_Angeles date +%F)
-          PTHOUR=$(TZ=America/Los_Angeles date +%H)
-          echo "ptdate=$PTDATE" >> "$GITHUB_OUTPUT"
-          if [ "${{ github.event_name }}" = "schedule" ] && { [ "$PTHOUR" -lt 15 ] || [ "$PTHOUR" -gt 16 ]; }; then
-            echo "PT hour $PTHOUR is not ~3pm — this UTC schedule isn't 3pm PT today (DST). Skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+          ETDATE=$(TZ=America/New_York date +%F)
+          ETHOUR=$(TZ=America/New_York date +%H)
+          echo "etdate=$ETDATE" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SESSION="${{ github.event.inputs.session }}"
+            if [ "$SESSION" = "auto" ] || [ -z "$SESSION" ]; then
+              if [ "$((10#$ETHOUR))" -lt 12 ]; then SESSION="morning"; else SESSION="evening"; fi
+            fi
+          elif [ "$ETHOUR" = "09" ]; then SESSION="morning"
+          elif [ "$ETHOUR" = "18" ]; then SESSION="evening"
           else
-            echo "skip=false (PT $PTDATE ${PTHOUR}:00)"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "ET hour $ETHOUR isn't a session open (wrong-DST cron) — skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
+          echo "session=$SESSION" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "Session: $SESSION  (ET $ETDATE ${ETHOUR}h)"
 
       - name: Restore data cache
         if: steps.guard.outputs.skip != 'true'
@@ -72,28 +88,31 @@ jobs:
       - name: Render briefing
         if: steps.guard.outputs.skip != 'true'
         env:
-          BRIEF_DATE: ${{ steps.guard.outputs.ptdate }}
+          BRIEF_DATE: ${{ steps.guard.outputs.etdate }}
+          BRIEF_SESSION: ${{ steps.guard.outputs.session }}
         run: |
           mkdir -p out
           python -m futures_swing.briefing --out out/briefing.md
 
-      - name: Post briefing (one persistent issue, daily comment, deduped)
+      - name: Post briefing (one persistent issue, per-session daily comment, deduped)
         if: steps.guard.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          PTDATE="${{ steps.guard.outputs.ptdate }}"
+          ETDATE="${{ steps.guard.outputs.etdate }}"
+          SESSION="${{ steps.guard.outputs.session }}"
+          MARK="<!-- brief:${ETDATE}:${SESSION} -->"
           TITLE="📋 ES/GC daily briefing"
-          printf '\n\ncc @%s\n' "${{ github.repository_owner }}" >> out/briefing.md
+          printf '\n\n%s\ncc @%s\n' "$MARK" "${{ github.repository_owner }}" >> out/briefing.md
           N=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
           if [ -z "$N" ]; then
             gh issue create --title "$TITLE" --body-file out/briefing.md && echo "Created briefing thread."
             exit 0
           fi
           SEEN=$(gh issue view "$N" --json body,comments \
-                  --jq '(.body) + " " + ((.comments // []) | map(.body) | join(" "))' | grep -c "$PTDATE" || true)
+                  --jq '(.body) + " " + ((.comments // []) | map(.body) | join(" "))' | grep -cF "$MARK" || true)
           if [ "$SEEN" != "0" ]; then
-            echo "Briefing for $PTDATE already posted on #$N — skipping."
+            echo "$SESSION briefing for $ETDATE already posted on #$N — skipping."
             exit 0
           fi
-          gh issue comment "$N" --body-file out/briefing.md && echo "Posted briefing for $PTDATE on #$N."
+          gh issue comment "$N" --body-file out/briefing.md && echo "Posted $SESSION briefing for $ETDATE on #$N."
