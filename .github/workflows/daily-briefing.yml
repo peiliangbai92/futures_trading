@@ -1,22 +1,39 @@
 name: daily-briefing
 
-# TWO daily ES/GC heads-up reports — signal status + price levels (+ GC gamma
-# map) — every trading day, regardless of whether there's a tradeable action:
-#   • morning  = US cash open,  09:30 ET
-#   • evening  = futures reopen, 18:00 ET
+# TWO daily ES/GC reports — signal status + price levels (+ GC gamma map) — every
+# trading day:  morning = US cash open 09:30 ET · evening = futures reopen 18:00 ET.
 # (The separate daily-signal workflow stays quiet unless a BUY/EXIT fires.)
 #
-# GitHub cron is UTC-only and DST-blind, so each session is scheduled at BOTH its
-# summer (EDT) and winter (EST) UTC time; an ET-hour guard maps each fire to a
-# session (09→morning, 18→evening) and rejects the wrong-DST one. A per-(date,
-# session) marker dedupes so both reports land exactly once each.
+# GitHub's scheduler runs jobs LATE — observed ~2h delay every day — so a single
+# cron at the open lands ~2h after it. Work around it: spray fire-points every 30m
+# from ~2.5h before each open THROUGH the open (both DST UTC offsets), then
+#   • a guard derives the session from the triggering cron's UTC hour (delay-proof),
+#   • an earliness gate holds the post until >= the open (09:30 / 18:00 ET),
+#   • a per-(date,session) marker dedupes to exactly one post.
+# Whichever delayed fire first lands at/after the open wins, so the report arrives
+# within ~30m of the open instead of ~2h late. Most fires just hit the guard and
+# exit in ~2s (guard is the FIRST step, before any checkout/install).
 
 on:
   schedule:
-    - cron: "30 13 * * 1-5"   # 09:30 EDT (summer) — cash open
-    - cron: "30 14 * * 1-5"   # 09:30 EST (winter) — cash open
-    - cron: "0 22 * * 1-5"    # 18:00 EDT (summer) — futures open
-    - cron: "0 23 * * 1-5"    # 18:00 EST (winter) — futures open
+    # Morning — UNION of EDT(UTC=ET+4) & EST(UTC=ET+5) for ET 07:00–09:30 → UTC HH 11–14
+    - cron: "0 11 * * 1-5"
+    - cron: "30 11 * * 1-5"
+    - cron: "0 12 * * 1-5"
+    - cron: "30 12 * * 1-5"
+    - cron: "0 13 * * 1-5"
+    - cron: "30 13 * * 1-5"
+    - cron: "0 14 * * 1-5"
+    - cron: "30 14 * * 1-5"
+    # Evening — UNION for ET 15:30–18:00 → UTC HH 19–23
+    - cron: "30 19 * * 1-5"
+    - cron: "0 20 * * 1-5"
+    - cron: "30 20 * * 1-5"
+    - cron: "0 21 * * 1-5"
+    - cron: "30 21 * * 1-5"
+    - cron: "0 22 * * 1-5"
+    - cron: "30 22 * * 1-5"
+    - cron: "0 23 * * 1-5"
   workflow_dispatch:
     inputs:
       session:
@@ -35,26 +52,14 @@ jobs:
   briefing:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install package
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e .
-
-      - name: Session guard (session from the CRON, not wall-clock — delay-proof)
+      - name: Session guard (session from the cron HOUR; gate at the open — delay-proof)
         id: guard
         run: |
-          # GitHub scheduled runs are routinely delayed 30-90+ min, so we must NOT
-          # infer the session from the execution wall-clock. github.event.schedule
-          # is the exact cron that triggered THIS run, so it names the session even
-          # if GitHub fires it late. The two crons per session are the DST pair; the
-          # per-(date,session) dedupe drops the redundant one. An earliness gate
-          # rejects only the off-DST cron that would fire ~1h before the open.
+          # Session is keyed off the triggering cron, NOT the execution wall-clock
+          # (GitHub runs scheduled jobs late, so wall-clock lies). The gate holds the
+          # post until the ET open and is "not before", so any delay only pushes it
+          # later — never a false skip. This step runs first, before checkout/install,
+          # so the ~15 sprayed fires that aren't yet at the open exit in ~2s.
           ETDATE=$(TZ=America/New_York date +%F)
           NOW=$((10#$(TZ=America/New_York date +%H%M)))   # ET HHMM, base-10 (avoid octal 08/09)
           echo "etdate=$ETDATE" >> "$GITHUB_OUTPUT"
@@ -65,20 +70,35 @@ jobs:
               if [ "$NOW" -lt 1200 ]; then SESSION="morning"; else SESSION="evening"; fi
             fi
           else
-            case "${{ github.event.schedule }}" in
-              "30 13 * * 1-5"|"30 14 * * 1-5") SESSION="morning"; EARLIEST=900  ;;  # open 09:30 ET
-              "0 22 * * 1-5"|"0 23 * * 1-5")   SESSION="evening"; EARLIEST=1730 ;;  # open 18:00 ET
-              *) echo "unexpected schedule '${{ github.event.schedule }}' — skipping";
+            HH=$(echo "${{ github.event.schedule }}" | awk '{print $2}')   # cron UTC hour
+            case "$HH" in
+              11|12|13|14)    SESSION="morning"; EARLIEST=930  ;;  # open 09:30 ET
+              19|20|21|22|23) SESSION="evening"; EARLIEST=1800 ;;  # open 18:00 ET
+              *) echo "cron hour $HH maps to no session — skipping";
                  echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
             esac
             if [ "$NOW" -lt "$EARLIEST" ]; then
-              echo "ET $NOW is before the $SESSION window ($EARLIEST) — off-DST early fire; the season-correct cron will post. Skipping."
+              echo "ET $NOW is before the $SESSION open ($EARLIEST) — a later sprayed fire will post. Skipping."
               echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
             fi
           fi
           echo "session=$SESSION" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "Session: $SESSION  (ET $ETDATE, now $NOW)"
+
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.skip != 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.guard.outputs.skip != 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
 
       - name: Restore data cache
         if: steps.guard.outputs.skip != 'true'
