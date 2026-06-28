@@ -123,7 +123,7 @@ def build_feature_matrix(
         raise KeyError(f"{symbol} not in INSTRUMENTS")
     if regime_mode == "auto":
         regime_mode = INSTRUMENTS[symbol].get("regime", "rule")
-    ohlc = data_loader.load_ohlc(symbol)
+    ohlc = data_loader.load_ohlc_model(symbol)
     macro_keys = list(MACRO_SYMBOLS) + (list(FRED_SERIES) if include_fred else [])
     macros = {k: data_loader.load_close(k) for k in macro_keys}
 

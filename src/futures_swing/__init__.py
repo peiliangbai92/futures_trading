@@ -33,6 +33,13 @@ INSTRUMENTS = {
         # constant; bump it when the index yield drifts (it's ~1.2-1.4% historically).
         "fair_value": {"kind": "index", "cash_key": "SPX_CASH", "rate_key": "SOFR",
                        "div_yield": 0.013},
+        # Roll-jump cleaner: yfinance ES=F is NOT back-adjusted, so each quarterly
+        # roll injects a spurious carry-sized return that contaminates ret_5/ret_20
+        # (the ES alpha inputs). De-gap it with ^GSPC cash as the no-gap truth (see
+        # roll_adjust.py). Applied in the model/backtest path (load_ohlc_model);
+        # display + fair value stay on the raw series. Validated vs IBKR ground truth.
+        "roll_adjust": True,
+        "roll_adjust_cash": "SPX_CASH",
         # Exit = ATR stop/target + 5d time-stop (the default). KEY finding from the
         # V1.5/1.6 exit study: quick exits are what let the strategy BUY THE NEXT LOW
         # (it cycled out and had dry powder — e.g. it bought the Apr-2025 crash bottom

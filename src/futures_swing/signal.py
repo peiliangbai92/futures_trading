@@ -54,7 +54,7 @@ def compute_signals(
     if smooth:
         pred = pred.ewm(span=int(smooth)).mean()   # causal EMA — cuts forecast noise
     horizon = INSTRUMENTS[symbol]["horizon"]
-    close = data_loader.load_ohlc(symbol)["close"]
+    close = data_loader.load_ohlc_model(symbol)["close"]
     fc = horizon_forecast_vol(close, horizon, window=window).reindex(pred.index)
     sharpe = (pred / fc).replace([np.inf, -np.inf], np.nan)
     signal = pd.Series(0, index=pred.index, dtype=int)

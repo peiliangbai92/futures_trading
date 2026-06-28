@@ -34,7 +34,7 @@ def signal_for(symbol: str, *, equity: float) -> dict:
     mdl, cols, _ = model.fit_full(symbol)
     last_date, pred = model.predict_latest(symbol, mdl, cols)
 
-    ohlc = data_loader.load_ohlc(symbol)
+    ohlc = data_loader.load_ohlc_model(symbol)
     close = ohlc["close"]
     fc_vol = signal.horizon_forecast_vol(close, horizon).get(last_date, np.nan)
     sharpe = pred / fc_vol if fc_vol and np.isfinite(fc_vol) and fc_vol > 0 else np.nan

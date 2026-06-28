@@ -45,7 +45,7 @@ GRID = {
 
 def forecast_sharpe(symbol: str) -> pd.Series:
     """Compute the OOS forecast sharpe ONCE (the expensive walk-forward call)."""
-    close = data_loader.load_ohlc(symbol)["close"]
+    close = data_loader.load_ohlc_model(symbol)["close"]
     hzn = INSTRUMENTS[symbol]["horizon"]
     pred = model.walk_forward(symbol).oos_pred
     fc = signal.horizon_forecast_vol(close, hzn).reindex(pred.index)
