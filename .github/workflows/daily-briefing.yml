@@ -118,6 +118,11 @@ jobs:
           done
           echo "data_loader failed after 3 attempts"; exit 1
 
+      - name: Refresh fair-value inputs (cash index, short rate, gold spot — best-effort)
+        if: steps.guard.outputs.skip != 'true'
+        continue-on-error: true   # fair value is a nice-to-have; never fail the briefing on it
+        run: python -m futures_swing.fair_value --refresh
+
       - name: Render briefing
         if: steps.guard.outputs.skip != 'true'
         env:
