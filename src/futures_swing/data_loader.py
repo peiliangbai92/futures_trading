@@ -32,6 +32,7 @@ FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 # key -> yahoo symbol for everything we pull
 YF_SYMBOLS: dict[str, str] = {k: v["yf_symbol"] for k, v in INSTRUMENTS.items()}
 YF_SYMBOLS.update(MACRO_SYMBOLS)
+YF_SYMBOLS["SPX_CASH"] = "^GSPC"   # cash index for the ES roll-jump cleaner (load_ohlc_model)
 
 _OHLC_COLS = ["open", "high", "low", "close", "adj_close", "volume"]
 
@@ -141,11 +142,33 @@ def load(key: str) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
-def load_ohlc(symbol: str) -> pd.DataFrame:
-    """OHLC(V) frame for an instrument key (ES / GC)."""
+def load_ohlc(symbol: str, *, adjust: bool = False) -> pd.DataFrame:
+    """Raw OHLC(V) frame for an instrument key (ES / GC). ``adjust=True`` applies the
+    instrument's roll-jump back-adjustment; falls back to raw if the cash feed is
+    absent. Display / fair-value paths want the RAW series (the real futures price)."""
     if symbol not in INSTRUMENTS:
         raise KeyError(f"{symbol} is not an instrument; use load() for macro keys")
-    return load(symbol)
+    df = load(symbol)
+    return _roll_adjusted(symbol, df) if adjust else df
+
+
+def load_ohlc_model(symbol: str) -> pd.DataFrame:
+    """OHLC for the alpha / backtest / validation path — applies the per-instrument
+    ``roll_adjust`` config (ES on, GC off) so features, targets and the sim run on a
+    de-gapped continuous series. Display / fair value use raw ``load_ohlc``."""
+    return load_ohlc(symbol, adjust=bool(INSTRUMENTS[symbol].get("roll_adjust")))
+
+
+def _roll_adjusted(symbol: str, df: pd.DataFrame) -> pd.DataFrame:
+    cash_key = INSTRUMENTS.get(symbol, {}).get("roll_adjust_cash")
+    if not cash_key:
+        return df
+    try:
+        cash = load(cash_key)["close"]
+    except FileNotFoundError:
+        return df   # cash feed absent (e.g. fresh CI) -> raw series; the model still runs
+    from . import roll_adjust
+    return roll_adjust.backadjust(df, cash)
 
 
 def load_close(key: str) -> pd.Series:

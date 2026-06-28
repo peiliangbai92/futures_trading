@@ -52,7 +52,7 @@ def trend_returns(symbol: str, *, lookback: int = 252, target_vol: float = 0.10,
     Position (as a fraction of equity notional) = sign(ret_lookback) × target_vol
     / trailing close-to-close vol, leverage-capped. Entered with a 1-day lag;
     turnover (daily change in leverage) is charged ``cost_bps`` per unit."""
-    close = data_loader.load_ohlc(symbol)["close"]
+    close = data_loader.load_ohlc_model(symbol)["close"]
     es_ret = close.pct_change()
     mom = np.sign(np.log(close / close.shift(lookback)))
     rv = close_to_close_volatility(close, window=21)          # same c2c formula as sizing

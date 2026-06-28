@@ -106,7 +106,7 @@ def make_dataset(symbol: str, *, include_fred: bool = False, regime_mode: str = 
     X = features.build_feature_matrix(symbol, dropna=True, include_fred=include_fred, regime_mode=regime_mode, hmm_kwargs=hmm_kwargs)
     from . import data_loader
 
-    close = data_loader.load_ohlc(symbol)["close"]
+    close = data_loader.load_ohlc_model(symbol)["close"]
     y = features.forward_log_return(close, horizon).reindex(X.index)
     valid = y.notna()
     return X[valid], y[valid], horizon

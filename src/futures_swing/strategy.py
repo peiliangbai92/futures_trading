@@ -54,7 +54,7 @@ def _cluster_first(cands, cooldown):
 
 
 def build_signals(symbol: str, cfg: dict, sharpe_override: pd.Series | None = None):
-    ohlc = data_loader.load_ohlc(symbol); close = ohlc["close"]
+    ohlc = data_loader.load_ohlc_model(symbol); close = ohlc["close"]
     horizon = INSTRUMENTS[symbol]["horizon"]
     if sharpe_override is not None:        # for the shuffled-forecast null / baselines
         shp = sharpe_override
@@ -136,7 +136,7 @@ def _live_sharpe(symbol: str) -> pd.Series:
     then fit_full (train-on-all, predict) for the post-last-fold tail the backtest
     folds don't cover. The OOS series alone lags by the purge (~last fold), so a
     live read of 'today' needs the fit_full tail."""
-    close = data_loader.load_ohlc(symbol)["close"]
+    close = data_loader.load_ohlc_model(symbol)["close"]
     hz = INSTRUMENTS[symbol]["horizon"]
     oos = model.walk_forward(symbol).oos_pred.dropna()
     mdl, cols, _ = model.fit_full(symbol)

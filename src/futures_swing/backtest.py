@@ -47,7 +47,7 @@ TRADING_DAYS = 252
 
 def _assemble(symbol: str, pred: pd.Series) -> pd.DataFrame:
     """OHLC + ATR + signal + sharpe + regime, aligned to the OOS dates."""
-    ohlc = data_loader.load_ohlc(symbol)
+    ohlc = data_loader.load_ohlc_model(symbol)
     atr = volmod.atr(ohlc, window=14)
     sig = signal.compute_signals(symbol, pred.dropna())
     reg = regime.classify(data_loader.load_close("ES"), data_loader.load_close("VIX"))
@@ -274,7 +274,7 @@ def run(symbol: str, *, init_equity: float = INIT_EQUITY, write: bool = True,
 
     stats = _ann_stats(equity)
     tstats = _trade_stats(trades, len(df), days_in_pos)
-    base = _baselines(data_loader.load_ohlc(symbol)["close"], df.index)
+    base = _baselines(data_loader.load_ohlc_model(symbol)["close"], df.index)
     regime_hits = _hit_by_regime(trades)
     # Fair comparison: Sharpe is leverage-invariant, so compare the strategy
     # *levered to buy & hold's volatility* — CAGR ~= Sharpe x vol at that vol.
