@@ -28,6 +28,11 @@ INSTRUMENTS = {
         "alpha": {"kind": "ridge", "features": ["ret_5", "ret_20"], "ridge_alpha": 10.0},
         "signal_th": 0.12,
         "long_only": True,
+        # Cost-of-carry fair value (briefing pre-open context; see fair_value.py).
+        # Index FV = cash * exp((r - q) * T). q = S&P 500 dividend yield — a slow-moving
+        # constant; bump it when the index yield drifts (it's ~1.2-1.4% historically).
+        "fair_value": {"kind": "index", "cash_key": "SPX_CASH", "rate_key": "TBILL_3M",
+                       "div_yield": 0.013},
         # Exit = ATR stop/target + 5d time-stop (the default). KEY finding from the
         # V1.5/1.6 exit study: quick exits are what let the strategy BUY THE NEXT LOW
         # (it cycled out and had dry powder — e.g. it bought the Apr-2025 crash bottom
@@ -56,6 +61,12 @@ INSTRUMENTS = {
         # dropping Sharpe 0.57->0.38 — so "small + clean" is 1–2 MGC at 0.10, and any
         # further down-weight should be a BOOK-level allocation, not a vol-target cut.
         "target_vol": 0.10,
+        # Cost-of-carry fair value. No clean free gold-spot feed exists, so carry is
+        # read off the futures TERM STRUCTURE (implied carry between two listed
+        # contracts) vs cost-of-carry = r + storage - lease (storage ~0.4%/yr, lease
+        # ~0). Implied carry < r, or an inverted curve, flags backwardation/tightness.
+        "fair_value": {"kind": "commodity", "rate_key": "TBILL_3M",
+                       "storage": 0.004, "lease": 0.0, "curve_points": 3},
     },
 }
 

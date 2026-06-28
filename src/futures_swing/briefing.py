@@ -16,7 +16,7 @@ import json
 import os
 from pathlib import Path
 
-from . import INSTRUMENTS, data_loader, strategy
+from . import INSTRUMENTS, data_loader, fair_value, strategy
 from . import vol as volmod
 from .execution import levels
 from .intraday import gold_gamma
@@ -122,6 +122,14 @@ def render(symbols: list[str], brief_date: str, session: str = "evening") -> str
             f"- signal: **{sig['your_action']}** · sharpe {sig['sharpe']:+.3f} (BUY at ≥ +{th:.2f})",
             f"- levels: 20d range {r['lo20']:.0f}–{r['hi20']:.0f} · ATR(14) ~{r['atr']:.0f} pts · "
             f"if-long stop {r['stop']:.0f} / target {r['target']:.0f}",
+        ]
+        try:                       # cost-of-carry fair value — best-effort, never block the post
+            fv_ln = fair_value.line(sym, asof=brief_date, future_price=r["last"])
+            if fv_ln:
+                lines.append(fv_ln)
+        except Exception as e:
+            lines.append(f"_(fair value skipped: {type(e).__name__})_")
+        lines += [
             f"- you: {you} · model: {sig['model_action']}",
             "",
         ]
