@@ -104,8 +104,13 @@ beTrig    = input.float(1.0,  "Breakeven trigger (ATR in profit)", minval=0.1, s
 useTrail  = input.bool(true,  "Trail stop by ATR", group=grpT)
 trailMult = input.float(2.0,  "Trailing distance (ATR)", minval=0.1, step=0.1, group=grpT)
 
-// Non-repaint offset: 1 = reference the last CLOSED HTF bar; 0 = the live bar.
-rep = noRepaint ? 1 : 0
+// Per-timeframe non-repaint offset. A timeframe HIGHER than the chart would
+// repaint if we read its live (unclosed) bar, so those use 1 = last CLOSED bar.
+// The chart timeframe and anything lower use 0 = the current bar, so the base
+// signal fires on the very bar that triggers it (no spurious 1-bar lag).
+// noRepaint off => 0 everywhere = fully immediate, but higher TFs then repaint.
+chartSec = timeframe.in_seconds(timeframe.period)
+f_off(tf) => (noRepaint and timeframe.in_seconds(tf) > chartSec) ? 1 : 0
 
 // ---------------------------------------------------------------- functions
 // RSI with SMA smoothing of up/down moves (design spec: "SMA, length 14").
@@ -140,26 +145,26 @@ f_bull_div() =>
     (not na(bs)) and (bs <= divHold)
 
 // Per-timeframe state bundle, computed IN the requested timeframe's context and
-// offset by `rep` bars for non-repainting.
-f_state() =>
+// offset by repN bars for non-repainting (repN comes from f_off per TF).
+f_state(repN) =>
     r = f_rsi_sma(close, rsiLen)
     m = ta.roc(close, momLen)
     d = f_bull_div()
-    [r[rep], m[rep], d[rep]]
+    [r[repN], m[repN], d[repN]]
 
-[rsi1,   _mom1,  _div1]  = request.security(syminfo.tickerid, "1",   f_state(), lookahead=barmerge.lookahead_off)
-[rsi5,   mom5,   div5]   = request.security(syminfo.tickerid, "5",   f_state(), lookahead=barmerge.lookahead_off)
-[rsi10,  mom10,  div10]  = request.security(syminfo.tickerid, "10",  f_state(), lookahead=barmerge.lookahead_off)
-[rsi30,  mom30,  div30]  = request.security(syminfo.tickerid, "30",  f_state(), lookahead=barmerge.lookahead_off)
-[rsi60,  mom60,  _d60]   = request.security(syminfo.tickerid, "60",  f_state(), lookahead=barmerge.lookahead_off)
-[rsi240, mom240, _d240]  = request.security(syminfo.tickerid, "240", f_state(), lookahead=barmerge.lookahead_off)
+[rsi1,   _mom1,  _div1]  = request.security(syminfo.tickerid, "1",   f_state(f_off("1")),   lookahead=barmerge.lookahead_off)
+[rsi5,   mom5,   div5]   = request.security(syminfo.tickerid, "5",   f_state(f_off("5")),   lookahead=barmerge.lookahead_off)
+[rsi10,  mom10,  div10]  = request.security(syminfo.tickerid, "10",  f_state(f_off("10")),  lookahead=barmerge.lookahead_off)
+[rsi30,  mom30,  div30]  = request.security(syminfo.tickerid, "30",  f_state(f_off("30")),  lookahead=barmerge.lookahead_off)
+[rsi60,  mom60,  _d60]   = request.security(syminfo.tickerid, "60",  f_state(f_off("60")),  lookahead=barmerge.lookahead_off)
+[rsi240, mom240, _d240]  = request.security(syminfo.tickerid, "240", f_state(f_off("240")), lookahead=barmerge.lookahead_off)
 
 // Higher-timeframe trend (EMA + slope) for the counter-trend filter.
-f_trend() =>
+f_trend(repN) =>
     e  = ta.ema(close, trendLen)
     sl = e - e[1]
-    [e[rep], sl[rep]]
-[trendEma, trendSlope] = request.security(syminfo.tickerid, trendTf, f_trend(), lookahead=barmerge.lookahead_off)
+    [e[repN], sl[repN]]
+[trendEma, trendSlope] = request.security(syminfo.tickerid, trendTf, f_trend(f_off(trendTf)), lookahead=barmerge.lookahead_off)
 
 // Confirmed trend = price on the trend side of the EMA AND the EMA sloping that way.
 trendUp = close > trendEma and trendSlope > 0
