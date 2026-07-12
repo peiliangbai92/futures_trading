@@ -59,9 +59,11 @@ momThr   = input.float(0.0, "Fast TF 'significant positive' >", step=0.05, group
 momFloor = input.float(0.0, "Slow TF 'not negative' >=",       step=0.05, group=grpM)
 
 // -------------------------------------------------------------- inputs: exit
-grpE = "Exit — ATR stop + RSI overbought"
+grpE = "Exit — ATR stop + take-profit"
 atrLen  = input.int(14, "ATR length", minval=1, group=grpE)
-atrMult = input.float(2.0, "ATR stop multiple", minval=0.1, step=0.1, group=grpE)
+atrMult = input.float(2.0, "ATR stop multiple (loss)", minval=0.1, step=0.1, group=grpE)
+tpMult  = input.float(3.0, "ATR take-profit multiple (gain)", minval=0.1, step=0.1, group=grpE)
+useObExit = input.bool(true, "Also exit on fast-TF RSI overbought", group=grpE)
 exitTh5  = input.int(70, "5m RSI overbought >=",  minval=1, maxval=99, group=grpE)
 exitTh10 = input.int(70, "10m RSI overbought >=", minval=1, maxval=99, group=grpE)
 
@@ -143,19 +145,33 @@ overbought = rsi5 >= exitTh5 and rsi10 >= exitTh10
 // ---------------------------------------------------------------- orders
 flat = strategy.position_size == 0
 
+// ATR is frozen at entry so the stop/target levels stay FIXED for the life of
+// the trade (they don't drift bar-to-bar as live ATR changes).
+var float atrEntry = na
+
 if entryLong and flat and barstate.isconfirmed
+    atrEntry := atrVal
     strategy.entry("Long", strategy.long, qty=qty, comment="MTF-RSI")
 
 if strategy.position_size > 0
-    stopPx = strategy.position_avg_price - atrMult * atrVal
-    strategy.exit("ATR-Stop", from_entry="Long", stop=stopPx, comment="ATR")
-    if overbought and barstate.isconfirmed
+    stopPx = strategy.position_avg_price - atrMult * atrEntry   // loss floor
+    tpPx   = strategy.position_avg_price + tpMult  * atrEntry   // profit target
+    // One OCO bracket: whichever of stop / take-profit is hit first closes the trade.
+    strategy.exit("Bracket", from_entry="Long", stop=stopPx, limit=tpPx, comment="ATR")
+    // Optional extra profit-taking exit when the fast RSIs are overbought.
+    if useObExit and overbought and barstate.isconfirmed
         strategy.close("Long", comment="RSI-OB")
 
 // ---------------------------------------------------------------- plotting
 plotshape(entryLong and flat, title="Entry", style=shape.triangleup,
      location=location.belowbar, color=color.new(color.teal, 0), size=size.small)
 bgcolor(strategy.position_size > 0 ? color.new(color.teal, 92) : na, title="In position")
+
+// Fixed stop (red) and take-profit (green) levels while in a trade — exits should
+// land on these lines. style_linebr breaks the line between trades.
+inPos = strategy.position_size > 0
+plot(inPos ? strategy.position_avg_price - atrMult * atrEntry : na, "Stop",   color=color.red,   style=plot.style_linebr, linewidth=1)
+plot(inPos ? strategy.position_avg_price + tpMult  * atrEntry : na, "Target", color=color.green, style=plot.style_linebr, linewidth=1)
 
 // ---------------------------------------------------------------- alerts
 alertcondition(entryLong and flat, "GC MTF RSI — ENTRY",
