@@ -63,9 +63,15 @@ grpE = "Exit — ATR stop + take-profit"
 atrLen  = input.int(14, "ATR length", minval=1, group=grpE)
 atrMult = input.float(2.0, "ATR stop multiple (loss)", minval=0.1, step=0.1, group=grpE)
 tpMult  = input.float(3.0, "ATR take-profit multiple (gain)", minval=0.1, step=0.1, group=grpE)
-useObExit = input.bool(true, "Also exit on fast-TF RSI overbought", group=grpE)
-exitTh5  = input.int(70, "5m RSI overbought >=",  minval=1, maxval=99, group=grpE)
-exitTh10 = input.int(70, "10m RSI overbought >=", minval=1, maxval=99, group=grpE)
+useObExit = input.bool(true, "Also exit on multi-TF RSI overbought", group=grpE)
+// Symmetric to Gate A: exit when at least N of the 6 timeframes are overbought.
+minTfExit = input.int(6, "Exit: min timeframes overbought (of 6)", minval=1, maxval=6, group=grpE)
+exTh1   = input.int(70, "1m RSI overbought >=",  minval=1, maxval=99, group=grpE)
+exTh5   = input.int(70, "5m RSI overbought >=",  minval=1, maxval=99, group=grpE)
+exTh10  = input.int(70, "10m RSI overbought >=", minval=1, maxval=99, group=grpE)
+exTh30  = input.int(65, "30m RSI overbought >=", minval=1, maxval=99, group=grpE)
+exTh60  = input.int(63, "1h RSI overbought >=",  minval=1, maxval=99, group=grpE)
+exTh240 = input.int(60, "4h RSI overbought >=",  minval=1, maxval=99, group=grpE)
 
 // ----------------------------------------------------------- inputs: execution
 grpX = "Execution"
@@ -140,7 +146,10 @@ entryLong = (gateA or gateB) and momGate
 
 // Exit conditions
 atrVal = ta.atr(atrLen)
-overbought = rsi5 >= exitTh5 and rsi10 >= exitTh10
+// Exit-side overbought: count how many of the 6 TFs are overbought, fire when
+// >= minTfExit (mirror of Gate A's oversold count on the entry side).
+obCount = (rsi1 >= exTh1 ? 1 : 0) + (rsi5 >= exTh5 ? 1 : 0) + (rsi10 >= exTh10 ? 1 : 0) + (rsi30 >= exTh30 ? 1 : 0) + (rsi60 >= exTh60 ? 1 : 0) + (rsi240 >= exTh240 ? 1 : 0)
+overbought = obCount >= minTfExit
 
 // ---------------------------------------------------------------- orders
 flat = strategy.position_size == 0
