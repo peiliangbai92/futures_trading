@@ -29,16 +29,21 @@ grpR = "RSI (SMA-smoothed, per design)"
 rsiLen = input.int(14, "RSI length", minval=2, group=grpR)
 
 // ----------------------------------------------- inputs: Gate A oversold ladder
-grpA = "Gate A — oversold ladder (RSI <=)"
-// How many of the 6 timeframes must be oversold for Gate A to fire. 6 = the
-// original "all must agree" behaviour; lower it to loosen entries (e.g. 3-4).
-minTfAgree = input.int(6, "Gate A: min timeframes oversold (of 6)", minval=1, maxval=6, group=grpA)
-th1   = input.int(30, "1m RSI <=",  minval=1, maxval=99, group=grpA)
-th5   = input.int(30, "5m RSI <=",  minval=1, maxval=99, group=grpA)
-th10  = input.int(30, "10m RSI <=", minval=1, maxval=99, group=grpA)
-th30  = input.int(35, "30m RSI <=", minval=1, maxval=99, group=grpA)
-th60  = input.int(37, "1h RSI <=",  minval=1, maxval=99, group=grpA)
-th240 = input.int(40, "4h RSI <=",  minval=1, maxval=99, group=grpA)
+grpA = "Gate A — oversold entry (tick the TFs to require)"
+// Tick a timeframe to require it to be oversold for entry; unticked = ignored.
+// Entry (Gate A) fires when EVERY ticked timeframe is oversold.
+useA1   = input.bool(true,  "1m",  inline="eA1",   group=grpA)
+th1     = input.int(30, "RSI <=", inline="eA1",   minval=1, maxval=99, group=grpA)
+useA5   = input.bool(true,  "5m",  inline="eA5",   group=grpA)
+th5     = input.int(30, "RSI <=", inline="eA5",   minval=1, maxval=99, group=grpA)
+useA10  = input.bool(true,  "10m", inline="eA10",  group=grpA)
+th10    = input.int(30, "RSI <=", inline="eA10",  minval=1, maxval=99, group=grpA)
+useA30  = input.bool(true,  "30m", inline="eA30",  group=grpA)
+th30    = input.int(35, "RSI <=", inline="eA30",  minval=1, maxval=99, group=grpA)
+useA60  = input.bool(true,  "1h",  inline="eA60",  group=grpA)
+th60    = input.int(37, "RSI <=", inline="eA60",  minval=1, maxval=99, group=grpA)
+useA240 = input.bool(true,  "4h",  inline="eA240", group=grpA)
+th240   = input.int(40, "RSI <=", inline="eA240", minval=1, maxval=99, group=grpA)
 
 // ----------------------------------------------------- inputs: Gate B divergence
 grpB = "Gate B — bullish RSI divergence"
@@ -63,15 +68,21 @@ grpE = "Exit — ATR stop + take-profit"
 atrLen  = input.int(14, "ATR length", minval=1, group=grpE)
 atrMult = input.float(2.0, "ATR stop multiple (loss)", minval=0.1, step=0.1, group=grpE)
 tpMult  = input.float(3.0, "ATR take-profit multiple (gain)", minval=0.1, step=0.1, group=grpE)
-useObExit = input.bool(true, "Also exit on multi-TF RSI overbought", group=grpE)
-// Symmetric to Gate A: exit when at least N of the 6 timeframes are overbought.
-minTfExit = input.int(6, "Exit: min timeframes overbought (of 6)", minval=1, maxval=6, group=grpE)
-exTh1   = input.int(70, "1m RSI overbought >=",  minval=1, maxval=99, group=grpE)
-exTh5   = input.int(70, "5m RSI overbought >=",  minval=1, maxval=99, group=grpE)
-exTh10  = input.int(70, "10m RSI overbought >=", minval=1, maxval=99, group=grpE)
-exTh30  = input.int(65, "30m RSI overbought >=", minval=1, maxval=99, group=grpE)
-exTh60  = input.int(63, "1h RSI overbought >=",  minval=1, maxval=99, group=grpE)
-exTh240 = input.int(60, "4h RSI overbought >=",  minval=1, maxval=99, group=grpE)
+useObExit = input.bool(true, "Enable RSI-overbought exit", group=grpE)
+// Tick a timeframe to require it to be overbought for this exit; unticked =
+// ignored. The overbought exit fires when EVERY ticked timeframe is overbought.
+useX1   = input.bool(true,  "1m",  inline="xX1",   group=grpE)
+exTh1   = input.int(70, "RSI >=", inline="xX1",   minval=1, maxval=99, group=grpE)
+useX5   = input.bool(true,  "5m",  inline="xX5",   group=grpE)
+exTh5   = input.int(70, "RSI >=", inline="xX5",   minval=1, maxval=99, group=grpE)
+useX10  = input.bool(true,  "10m", inline="xX10",  group=grpE)
+exTh10  = input.int(70, "RSI >=", inline="xX10",  minval=1, maxval=99, group=grpE)
+useX30  = input.bool(true,  "30m", inline="xX30",  group=grpE)
+exTh30  = input.int(65, "RSI >=", inline="xX30",  minval=1, maxval=99, group=grpE)
+useX60  = input.bool(true,  "1h",  inline="xX60",  group=grpE)
+exTh60  = input.int(63, "RSI >=", inline="xX60",  minval=1, maxval=99, group=grpE)
+useX240 = input.bool(true,  "4h",  inline="xX240", group=grpE)
+exTh240 = input.int(60, "RSI >=", inline="xX240", minval=1, maxval=99, group=grpE)
 
 // ----------------------------------------------------------- inputs: execution
 grpX = "Execution"
@@ -130,10 +141,15 @@ f_state() =>
 [rsi240, mom240, _d240]  = request.security(syminfo.tickerid, "240", f_state(), lookahead=barmerge.lookahead_off)
 
 // ---------------------------------------------------------------- signal logic
-// Gate A — count how many timeframes are oversold, fire when >= minTfAgree.
-// (minTfAgree defaults to 6 = the original "all must agree"; lower to loosen.)
-tfCount = (rsi1 <= th1 ? 1 : 0) + (rsi5 <= th5 ? 1 : 0) + (rsi10 <= th10 ? 1 : 0) + (rsi30 <= th30 ? 1 : 0) + (rsi60 <= th60 ? 1 : 0) + (rsi240 <= th240 ? 1 : 0)
-gateA = tfCount >= minTfAgree
+// Gate A — every TICKED timeframe must be oversold (unticked ones are ignored).
+a1ok   = not useA1   or rsi1   <= th1
+a5ok   = not useA5   or rsi5   <= th5
+a10ok  = not useA10  or rsi10  <= th10
+a30ok  = not useA30  or rsi30  <= th30
+a60ok  = not useA60  or rsi60  <= th60
+a240ok = not useA240 or rsi240 <= th240
+anySelA = useA1 or useA5 or useA10 or useA30 or useA60 or useA240
+gateA = anySelA and a1ok and a5ok and a10ok and a30ok and a60ok and a240ok
 
 // Gate B — a fast-TF bullish divergence (5m/10m/30m per design) while the slow
 // TFs are still soft.
@@ -146,10 +162,16 @@ entryLong = (gateA or gateB) and momGate
 
 // Exit conditions
 atrVal = ta.atr(atrLen)
-// Exit-side overbought: count how many of the 6 TFs are overbought, fire when
-// >= minTfExit (mirror of Gate A's oversold count on the entry side).
-obCount = (rsi1 >= exTh1 ? 1 : 0) + (rsi5 >= exTh5 ? 1 : 0) + (rsi10 >= exTh10 ? 1 : 0) + (rsi30 >= exTh30 ? 1 : 0) + (rsi60 >= exTh60 ? 1 : 0) + (rsi240 >= exTh240 ? 1 : 0)
-overbought = obCount >= minTfExit
+// Exit-side overbought — every TICKED timeframe must be overbought (mirror of
+// Gate A on the entry side; unticked TFs are ignored).
+x1ok   = not useX1   or rsi1   >= exTh1
+x5ok   = not useX5   or rsi5   >= exTh5
+x10ok  = not useX10  or rsi10  >= exTh10
+x30ok  = not useX30  or rsi30  >= exTh30
+x60ok  = not useX60  or rsi60  >= exTh60
+x240ok = not useX240 or rsi240 >= exTh240
+anySelX = useX1 or useX5 or useX10 or useX30 or useX60 or useX240
+overbought = anySelX and x1ok and x5ok and x10ok and x30ok and x60ok and x240ok
 
 // ---------------------------------------------------------------- orders
 flat = strategy.position_size == 0
@@ -206,17 +228,17 @@ if showTable and barstate.islast
     table.cell(t, 2, 0, "<=th",text_color=color.white, bgcolor=color.new(color.blue, 0))
     table.cell(t, 3, 0, "div/mom", text_color=color.white, bgcolor=color.new(color.blue, 0))
 
-    f_row(t, 1, "1m",  rsi1,   th1,   "")
-    f_row(t, 2, "5m",  rsi5,   th5,   (div5  ? "div " : "") + (mom5  > momThr ? "m+" : "m-"))
-    f_row(t, 3, "10m", rsi10,  th10,  (div10 ? "div " : "") + (mom10 > momThr ? "m+" : "m-"))
-    f_row(t, 4, "30m", rsi30,  th30,  (div30 ? "div " : "") + (mom30 > momThr ? "m+" : "m-"))
-    f_row(t, 5, "1h",  rsi60,  th60,  mom60  >= momFloor ? "m>=0" : "m<0")
-    f_row(t, 6, "4h",  rsi240, th240, mom240 >= momFloor ? "m>=0" : "m<0")
+    // Leading "•" marks a timeframe that is ticked for the Gate A entry.
+    f_row(t, 1, (useA1   ? "•1m"  : " 1m"),  rsi1,   th1,   "")
+    f_row(t, 2, (useA5   ? "•5m"  : " 5m"),  rsi5,   th5,   (div5  ? "div " : "") + (mom5  > momThr ? "m+" : "m-"))
+    f_row(t, 3, (useA10  ? "•10m" : " 10m"), rsi10,  th10,  (div10 ? "div " : "") + (mom10 > momThr ? "m+" : "m-"))
+    f_row(t, 4, (useA30  ? "•30m" : " 30m"), rsi30,  th30,  (div30 ? "div " : "") + (mom30 > momThr ? "m+" : "m-"))
+    f_row(t, 5, (useA60  ? "•1h"  : " 1h"),  rsi60,  th60,  mom60  >= momFloor ? "m>=0" : "m<0")
+    f_row(t, 6, (useA240 ? "•4h"  : " 4h"),  rsi240, th240, mom240 >= momFloor ? "m>=0" : "m<0")
 
     sig = entryLong and flat
     table.cell(t, 0, 7, "SIGNAL", text_color=color.white,
          bgcolor=sig ? color.new(color.green, 0) : color.new(color.gray, 20))
-    // Gate A cell shows live count vs threshold, e.g. "A 4/6".
-    table.cell(t, 1, 7, "A " + str.tostring(tfCount) + "/" + str.tostring(minTfAgree), bgcolor=f_cellcol(gateA))
+    table.cell(t, 1, 7, gateA ? "A" : "-", bgcolor=f_cellcol(gateA))
     table.cell(t, 2, 7, gateB ? "B" : "-", bgcolor=f_cellcol(gateB))
     table.cell(t, 3, 7, momGate ? "mom" : "-", bgcolor=f_cellcol(momGate))
