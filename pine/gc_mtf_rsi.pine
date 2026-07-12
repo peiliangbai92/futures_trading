@@ -1,0 +1,197 @@
+//@version=6
+// =============================================================================
+// GC Multi-Timeframe RSI Mean-Reversion Strategy
+// -----------------------------------------------------------------------------
+// Buy oversold gold when a ladder of timeframes agree, OR when a fast-timeframe
+// bullish RSI divergence prints while the higher timeframes are still soft — and
+// only when short-term momentum has turned up. Exit on an ATR stop or when the
+// fast RSIs flip overbought.
+//
+// Timeframes: 1m / 5m / 10m / 30m / 1h / 4h  (pulled via request.security, so the
+// script can be attached to any chart timeframe — 5m is the intended base).
+//
+// RSI is computed with SMA smoothing of gains/losses (length 14), per the design
+// spec — this is NOT the built-in ta.rsi() (which uses Wilder's RMA). The two
+// differ slightly; that is intentional.
+//
+// Non-repainting: higher-timeframe values use lookahead_off and (when noRepaint
+// is on) reference the last CLOSED HTF bar; strategy actions fire only on
+// confirmed chart bars.
+// =============================================================================
+
+strategy("GC MTF RSI (SMA)", overlay=true, pyramiding=0,
+     calc_on_every_tick=false, process_orders_on_close=true,
+     initial_capital=10000, default_qty_type=strategy.fixed, default_qty_value=1,
+     max_labels_count=200)
+
+// ---------------------------------------------------------------- inputs: RSI
+grpR = "RSI (SMA-smoothed, per design)"
+rsiLen = input.int(14, "RSI length", minval=2, group=grpR)
+
+// ----------------------------------------------- inputs: Gate A oversold ladder
+grpA = "Gate A — oversold ladder (RSI <=)"
+// How many of the 6 timeframes must be oversold for Gate A to fire. 6 = the
+// original "all must agree" behaviour; lower it to loosen entries (e.g. 3-4).
+minTfAgree = input.int(6, "Gate A: min timeframes oversold (of 6)", minval=1, maxval=6, group=grpA)
+th1   = input.int(30, "1m RSI <=",  minval=1, maxval=99, group=grpA)
+th5   = input.int(30, "5m RSI <=",  minval=1, maxval=99, group=grpA)
+th10  = input.int(30, "10m RSI <=", minval=1, maxval=99, group=grpA)
+th30  = input.int(35, "30m RSI <=", minval=1, maxval=99, group=grpA)
+th60  = input.int(37, "1h RSI <=",  minval=1, maxval=99, group=grpA)
+th240 = input.int(40, "4h RSI <=",  minval=1, maxval=99, group=grpA)
+
+// ----------------------------------------------------- inputs: Gate B divergence
+grpB = "Gate B — bullish RSI divergence"
+useDivGate = input.bool(true,  "Enable divergence entry (Gate B)", group=grpB)
+divRsi60  = input.int(40, "1h RSI <  (div context)", minval=1, maxval=99, group=grpB)
+divRsi240 = input.int(40, "4h RSI <  (div context)", minval=1, maxval=99, group=grpB)
+pivLbL = input.int(5,  "Pivot left bars",  minval=1, group=grpB)
+pivLbR = input.int(5,  "Pivot right bars", minval=1, group=grpB)
+rngMin = input.int(5,  "Min bars between pivots", minval=1, group=grpB)
+rngMax = input.int(60, "Max bars between pivots", minval=2, group=grpB)
+divHold = input.int(3, "Bars a divergence stays 'active'", minval=0, group=grpB)
+
+// ----------------------------------------------------------- inputs: momentum
+grpM = "Momentum gate (ROC)"
+useMomentum = input.bool(true, "Require momentum gate", group=grpM)
+momLen   = input.int(10, "Momentum (ROC) length", minval=1, group=grpM)
+momThr   = input.float(0.0, "Fast TF 'significant positive' >", step=0.05, group=grpM)
+momFloor = input.float(0.0, "Slow TF 'not negative' >=",       step=0.05, group=grpM)
+
+// -------------------------------------------------------------- inputs: exit
+grpE = "Exit — ATR stop + RSI overbought"
+atrLen  = input.int(14, "ATR length", minval=1, group=grpE)
+atrMult = input.float(2.0, "ATR stop multiple", minval=0.1, step=0.1, group=grpE)
+exitTh5  = input.int(70, "5m RSI overbought >=",  minval=1, maxval=99, group=grpE)
+exitTh10 = input.int(70, "10m RSI overbought >=", minval=1, maxval=99, group=grpE)
+
+// ----------------------------------------------------------- inputs: execution
+grpX = "Execution"
+qty = input.int(1, "Contracts per entry", minval=1, group=grpX)
+noRepaint = input.bool(true, "Non-repainting HTF (use last closed bar)", group=grpX)
+showTable = input.bool(true, "Show status table", group=grpX)
+
+// Non-repaint offset: 1 = reference the last CLOSED HTF bar; 0 = the live bar.
+rep = noRepaint ? 1 : 0
+
+// ---------------------------------------------------------------- functions
+// RSI with SMA smoothing of up/down moves (design spec: "SMA, length 14").
+f_rsi_sma(src, len) =>
+    ch = ta.change(src)
+    up = ta.sma(math.max(ch, 0.0), len)
+    dn = ta.sma(-math.min(ch, 0.0), len)
+    dn == 0.0 ? 100.0 : up == 0.0 ? 0.0 : 100.0 - 100.0 / (1.0 + up / dn)
+
+// Regular bullish divergence on the RSI: price makes a lower low while the RSI
+// makes a higher low, measured between two confirmed RSI pivot lows. Causal —
+// a pivot at bar p is only known pivLbR bars later, and we reference it then.
+// Returns true for `divHold` bars after each confirmation. Reads the config
+// inputs directly (keeps ta.pivotlow's length args 'simple').
+f_bull_div() =>
+    r  = f_rsi_sma(close, rsiLen)
+    pv = ta.pivotlow(r, pivLbL, pivLbR)    // RSI value at the pivot, else na
+    var float pRsi = na
+    var float pLow = na
+    var int   pBar = na
+    ev = false
+    if not na(pv)
+        curBar = bar_index - pivLbR
+        curLow = low[pivLbR]
+        if not na(pRsi)
+            gap = curBar - pBar
+            ev := gap >= rngMin and gap <= rngMax and pv > pRsi and curLow < pLow
+        pRsi := pv
+        pLow := curLow
+        pBar := curBar
+    bs = ta.barssince(ev)
+    (not na(bs)) and (bs <= divHold)
+
+// Per-timeframe state bundle, computed IN the requested timeframe's context and
+// offset by `rep` bars for non-repainting.
+f_state() =>
+    r = f_rsi_sma(close, rsiLen)
+    m = ta.roc(close, momLen)
+    d = f_bull_div()
+    [r[rep], m[rep], d[rep]]
+
+[rsi1,   _mom1,  _div1]  = request.security(syminfo.tickerid, "1",   f_state(), lookahead=barmerge.lookahead_off)
+[rsi5,   mom5,   div5]   = request.security(syminfo.tickerid, "5",   f_state(), lookahead=barmerge.lookahead_off)
+[rsi10,  mom10,  div10]  = request.security(syminfo.tickerid, "10",  f_state(), lookahead=barmerge.lookahead_off)
+[rsi30,  mom30,  div30]  = request.security(syminfo.tickerid, "30",  f_state(), lookahead=barmerge.lookahead_off)
+[rsi60,  mom60,  _d60]   = request.security(syminfo.tickerid, "60",  f_state(), lookahead=barmerge.lookahead_off)
+[rsi240, mom240, _d240]  = request.security(syminfo.tickerid, "240", f_state(), lookahead=barmerge.lookahead_off)
+
+// ---------------------------------------------------------------- signal logic
+// Gate A — count how many timeframes are oversold, fire when >= minTfAgree.
+// (minTfAgree defaults to 6 = the original "all must agree"; lower to loosen.)
+tfCount = (rsi1 <= th1 ? 1 : 0) + (rsi5 <= th5 ? 1 : 0) + (rsi10 <= th10 ? 1 : 0) + (rsi30 <= th30 ? 1 : 0) + (rsi60 <= th60 ? 1 : 0) + (rsi240 <= th240 ? 1 : 0)
+gateA = tfCount >= minTfAgree
+
+// Gate B — a fast-TF bullish divergence (5m/10m/30m per design) while the slow
+// TFs are still soft.
+gateB = useDivGate and (div5 or div10 or div30) and rsi60 < divRsi60 and rsi240 < divRsi240
+
+// Momentum gate — fast TFs turning up, slow TFs not falling.
+momGate = (not useMomentum) or (mom5 > momThr and mom10 > momThr and mom30 > momThr and mom60 >= momFloor and mom240 >= momFloor)
+
+entryLong = (gateA or gateB) and momGate
+
+// Exit conditions
+atrVal = ta.atr(atrLen)
+overbought = rsi5 >= exitTh5 and rsi10 >= exitTh10
+
+// ---------------------------------------------------------------- orders
+flat = strategy.position_size == 0
+
+if entryLong and flat and barstate.isconfirmed
+    strategy.entry("Long", strategy.long, qty=qty, comment="MTF-RSI")
+
+if strategy.position_size > 0
+    stopPx = strategy.position_avg_price - atrMult * atrVal
+    strategy.exit("ATR-Stop", from_entry="Long", stop=stopPx, comment="ATR")
+    if overbought and barstate.isconfirmed
+        strategy.close("Long", comment="RSI-OB")
+
+// ---------------------------------------------------------------- plotting
+plotshape(entryLong and flat, title="Entry", style=shape.triangleup,
+     location=location.belowbar, color=color.new(color.teal, 0), size=size.small)
+bgcolor(strategy.position_size > 0 ? color.new(color.teal, 92) : na, title="In position")
+
+// ---------------------------------------------------------------- alerts
+alertcondition(entryLong and flat, "GC MTF RSI — ENTRY",
+     "GC MTF RSI long entry: multi-TF oversold/divergence + momentum aligned.")
+alertcondition(strategy.position_size > 0 and overbought, "GC MTF RSI — RSI overbought exit",
+     "GC MTF RSI: fast-TF RSI overbought — take-profit exit.")
+
+// ---------------------------------------------------------------- status table
+f_yn(b) => b ? "Y" : "N"
+f_cellcol(b) => b ? color.new(color.teal, 0) : color.new(color.gray, 40)
+
+f_row(t, row, name, rsiv, th, extra) =>
+    table.cell(t, 0, row, name)
+    table.cell(t, 1, row, str.tostring(rsiv, "#.0"))
+    table.cell(t, 2, row, f_yn(rsiv <= th), bgcolor=f_cellcol(rsiv <= th))
+    table.cell(t, 3, row, extra)
+
+var table t = table.new(position.top_right, 4, 8, border_width=1)
+
+if showTable and barstate.islast
+    table.cell(t, 0, 0, "TF",  text_color=color.white, bgcolor=color.new(color.blue, 0))
+    table.cell(t, 1, 0, "RSI", text_color=color.white, bgcolor=color.new(color.blue, 0))
+    table.cell(t, 2, 0, "<=th",text_color=color.white, bgcolor=color.new(color.blue, 0))
+    table.cell(t, 3, 0, "div/mom", text_color=color.white, bgcolor=color.new(color.blue, 0))
+
+    f_row(t, 1, "1m",  rsi1,   th1,   "")
+    f_row(t, 2, "5m",  rsi5,   th5,   (div5  ? "div " : "") + (mom5  > momThr ? "m+" : "m-"))
+    f_row(t, 3, "10m", rsi10,  th10,  (div10 ? "div " : "") + (mom10 > momThr ? "m+" : "m-"))
+    f_row(t, 4, "30m", rsi30,  th30,  (div30 ? "div " : "") + (mom30 > momThr ? "m+" : "m-"))
+    f_row(t, 5, "1h",  rsi60,  th60,  mom60  >= momFloor ? "m>=0" : "m<0")
+    f_row(t, 6, "4h",  rsi240, th240, mom240 >= momFloor ? "m>=0" : "m<0")
+
+    sig = entryLong and flat
+    table.cell(t, 0, 7, "SIGNAL", text_color=color.white,
+         bgcolor=sig ? color.new(color.green, 0) : color.new(color.gray, 20))
+    // Gate A cell shows live count vs threshold, e.g. "A 4/6".
+    table.cell(t, 1, 7, "A " + str.tostring(tfCount) + "/" + str.tostring(minTfAgree), bgcolor=f_cellcol(gateA))
+    table.cell(t, 2, 7, gateB ? "B" : "-", bgcolor=f_cellcol(gateB))
+    table.cell(t, 3, 7, momGate ? "mom" : "-", bgcolor=f_cellcol(momGate))
