@@ -21,7 +21,7 @@
 
 strategy("GC MTF RSI (SMA)", overlay=true, pyramiding=0,
      calc_on_every_tick=false, process_orders_on_close=true,
-     initial_capital=1000000, default_qty_type=strategy.fixed, default_qty_value=1,
+     initial_capital=50000, default_qty_type=strategy.fixed, default_qty_value=1,
      max_labels_count=200)
 
 // ---------------------------------------------------------------- inputs: RSI
@@ -91,6 +91,19 @@ useShort = input.bool(true, "Enable short entries (short when overbought & flat)
 noRepaint = input.bool(true, "Non-repainting HTF (use last closed bar)", group=grpX)
 showTable = input.bool(true, "Show status table", group=grpX)
 
+// ------------------------------------------------------------ inputs: trend filter
+grpF = "Trend filter — avoid counter-trend entries"
+useTrend = input.bool(true, "Enable trend filter", group=grpF)
+trendTf  = input.timeframe("240", "Trend timeframe", group=grpF)
+trendLen = input.int(50, "Trend EMA length", minval=1, group=grpF)
+
+// -------------------------------------------------- inputs: trailing / breakeven
+grpT = "Trailing / breakeven — initial stop stays fixed, only moves in your favour"
+useBE     = input.bool(true,  "Move stop to breakeven", group=grpT)
+beTrig    = input.float(1.0,  "Breakeven trigger (ATR in profit)", minval=0.1, step=0.1, group=grpT)
+useTrail  = input.bool(true,  "Trail stop by ATR", group=grpT)
+trailMult = input.float(2.0,  "Trailing distance (ATR)", minval=0.1, step=0.1, group=grpT)
+
 // Non-repaint offset: 1 = reference the last CLOSED HTF bar; 0 = the live bar.
 rep = noRepaint ? 1 : 0
 
@@ -141,6 +154,19 @@ f_state() =>
 [rsi60,  mom60,  _d60]   = request.security(syminfo.tickerid, "60",  f_state(), lookahead=barmerge.lookahead_off)
 [rsi240, mom240, _d240]  = request.security(syminfo.tickerid, "240", f_state(), lookahead=barmerge.lookahead_off)
 
+// Higher-timeframe trend (EMA + slope) for the counter-trend filter.
+f_trend() =>
+    e  = ta.ema(close, trendLen)
+    sl = e - e[1]
+    [e[rep], sl[rep]]
+[trendEma, trendSlope] = request.security(syminfo.tickerid, trendTf, f_trend(), lookahead=barmerge.lookahead_off)
+
+// Confirmed trend = price on the trend side of the EMA AND the EMA sloping that way.
+trendUp = close > trendEma and trendSlope > 0
+trendDn = close < trendEma and trendSlope < 0
+longOk  = (not useTrend) or (not trendDn)   // don't buy dips in a confirmed downtrend
+shortOk = (not useTrend) or (not trendUp)   // don't sell rips in a confirmed uptrend
+
 // ---------------------------------------------------------------- signal logic
 // Gate A — every TICKED timeframe must be oversold (unticked ones are ignored).
 a1ok   = not useA1   or rsi1   <= th1
@@ -159,7 +185,7 @@ gateB = useDivGate and (div5 or div10 or div30) and rsi60 < divRsi60 and rsi240 
 // Momentum gate — fast TFs turning up, slow TFs not falling.
 momGate = (not useMomentum) or (mom5 > momThr and mom10 > momThr and mom30 > momThr and mom60 >= momFloor and mom240 >= momFloor)
 
-entryLong = (gateA or gateB) and momGate
+entryLong = (gateA or gateB) and momGate and longOk
 
 // Exit conditions
 atrVal = ta.atr(atrLen)
@@ -176,42 +202,59 @@ overbought = anySelX and x1ok and x5ok and x10ok and x30ok and x60ok and x240ok
 
 // Short entry — symmetric to the long: go short when the ticked TFs are
 // overbought. (Gate B divergence / momentum gate are long-side only.)
-entryShort = useShort and overbought
+entryShort = useShort and overbought and shortOk
 
 // ---------------------------------------------------------------- orders
 // Position is always flat or exactly 1 contract: we only ever enter when flat
 // (pyramiding=0, qty=1), so long and short can never coexist.
 flat = strategy.position_size == 0
 
-// ATR is frozen at entry so the stop/target levels stay FIXED for the life of
-// the trade (they don't drift bar-to-bar as live ATR changes).
-var float atrEntry = na
+// ATR is frozen at entry so the INITIAL stop/target stay fixed for the trade.
+// The protective stop only ever moves in your favour (breakeven / trail),
+// never looser — so worst-case loss is still the initial ATR stop.
+var float atrEntry  = na
+var float trailStop = na
 
 // ---- entries: only when flat. Long takes precedence if both fire the same bar.
 if flat and barstate.isconfirmed
     if entryLong
-        atrEntry := atrVal
+        atrEntry  := atrVal
+        trailStop := na
         strategy.entry("Long", strategy.long, qty=qty, comment="MTF-RSI")
     else if entryShort
-        atrEntry := atrVal
+        atrEntry  := atrVal
+        trailStop := na
         strategy.entry("Short", strategy.short, qty=qty, comment="MTF-OB")
 
-// ---- long management: fixed ATR bracket + optional overbought take-profit.
+// ---- long management: fixed target + breakeven/trailing stop.
 if strategy.position_size > 0
-    stopPx = strategy.position_avg_price - atrMult * atrEntry   // loss floor
-    tpPx   = strategy.position_avg_price + tpMult  * atrEntry   // profit target
-    strategy.exit("L-Bracket", from_entry="Long", stop=stopPx, limit=tpPx, comment="ATR")
+    entryPx = strategy.position_avg_price
+    tpPx    = entryPx + tpMult * atrEntry
+    trailStop := na(trailStop) ? entryPx - atrMult * atrEntry : trailStop
+    if useBE and high >= entryPx + beTrig * atrEntry
+        trailStop := math.max(trailStop, entryPx)                 // lock breakeven
+    if useTrail
+        trailStop := math.max(trailStop, close - trailMult * atrEntry)
+    strategy.exit("L-Bracket", from_entry="Long", stop=trailStop, limit=tpPx, comment="ATR")
     if useObExit and overbought and barstate.isconfirmed
         strategy.close("Long", comment="RSI-OB")
 
-// ---- short management: mirror bracket (stop above, target below) + optional
-// oversold cover.
+// ---- short management: mirror of the long side.
 if strategy.position_size < 0
-    stopPx = strategy.position_avg_price + atrMult * atrEntry   // loss ceiling
-    tpPx   = strategy.position_avg_price - tpMult  * atrEntry   // profit target
-    strategy.exit("S-Bracket", from_entry="Short", stop=stopPx, limit=tpPx, comment="ATR")
+    entryPx = strategy.position_avg_price
+    tpPx    = entryPx - tpMult * atrEntry
+    trailStop := na(trailStop) ? entryPx + atrMult * atrEntry : trailStop
+    if useBE and low <= entryPx - beTrig * atrEntry
+        trailStop := math.min(trailStop, entryPx)                 // lock breakeven
+    if useTrail
+        trailStop := math.min(trailStop, close + trailMult * atrEntry)
+    strategy.exit("S-Bracket", from_entry="Short", stop=trailStop, limit=tpPx, comment="ATR")
     if useObExit and gateA and barstate.isconfirmed
         strategy.close("Short", comment="RSI-OS")
+
+// reset the protective stop whenever flat so the next trade re-initialises it
+if flat
+    trailStop := na
 
 // ---------------------------------------------------------------- plotting
 plotshape(entryLong and flat, title="Long entry", style=shape.triangleup,
@@ -223,12 +266,15 @@ longPos  = strategy.position_size > 0
 shortPos = strategy.position_size < 0
 bgcolor(longPos ? color.new(color.teal, 92) : shortPos ? color.new(color.maroon, 92) : na, title="In position")
 
-// Fixed stop (red) and take-profit (green) levels while in a trade — exits should
-// land on these lines. For a short the stop is above and the target below.
-stopLine = longPos ? strategy.position_avg_price - atrMult * atrEntry : shortPos ? strategy.position_avg_price + atrMult * atrEntry : na
-tpLine   = longPos ? strategy.position_avg_price + tpMult  * atrEntry : shortPos ? strategy.position_avg_price - tpMult  * atrEntry : na
+// Live protective stop (red, follows breakeven/trail) and fixed take-profit
+// (green). For a short the target is below entry.
+stopLine = (longPos or shortPos) ? trailStop : na
+tpLine   = longPos ? strategy.position_avg_price + tpMult * atrEntry : shortPos ? strategy.position_avg_price - tpMult * atrEntry : na
 plot(stopLine, "Stop",   color=color.red,   style=plot.style_linebr, linewidth=1)
 plot(tpLine,   "Target", color=color.green, style=plot.style_linebr, linewidth=1)
+
+// Higher-timeframe trend EMA — entries are blocked against a confirmed trend.
+plot(useTrend ? trendEma : na, "Trend EMA", color=color.new(color.orange, 0), linewidth=1)
 
 // ---------------------------------------------------------------- alerts
 alertcondition(entryLong and flat, "GC MTF RSI — LONG ENTRY",
