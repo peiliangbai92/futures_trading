@@ -152,12 +152,36 @@ f_state(repN) =>
     d = f_bull_div()
     [r[repN], m[repN], d[repN]]
 
-[rsi1,   _mom1,  _div1]  = request.security(syminfo.tickerid, "1",   f_state(f_off("1")),   lookahead=barmerge.lookahead_off)
-[rsi5,   mom5,   div5]   = request.security(syminfo.tickerid, "5",   f_state(f_off("5")),   lookahead=barmerge.lookahead_off)
-[rsi10,  mom10,  div10]  = request.security(syminfo.tickerid, "10",  f_state(f_off("10")),  lookahead=barmerge.lookahead_off)
-[rsi30,  mom30,  div30]  = request.security(syminfo.tickerid, "30",  f_state(f_off("30")),  lookahead=barmerge.lookahead_off)
-[rsi60,  mom60,  _d60]   = request.security(syminfo.tickerid, "60",  f_state(f_off("60")),  lookahead=barmerge.lookahead_off)
-[rsi240, mom240, _d240]  = request.security(syminfo.tickerid, "240", f_state(f_off("240")), lookahead=barmerge.lookahead_off)
+[rsi1s,   _mom1,  _div1]  = request.security(syminfo.tickerid, "1",   f_state(f_off("1")),   lookahead=barmerge.lookahead_off)
+[rsi5s,   mom5s,  div5s]  = request.security(syminfo.tickerid, "5",   f_state(f_off("5")),   lookahead=barmerge.lookahead_off)
+[rsi10s,  mom10s, div10s] = request.security(syminfo.tickerid, "10",  f_state(f_off("10")),  lookahead=barmerge.lookahead_off)
+[rsi30s,  mom30s, div30s] = request.security(syminfo.tickerid, "30",  f_state(f_off("30")),  lookahead=barmerge.lookahead_off)
+[rsi60s,  mom60s, _d60]   = request.security(syminfo.tickerid, "60",  f_state(f_off("60")),  lookahead=barmerge.lookahead_off)
+[rsi240s, mom240s,_d240]  = request.security(syminfo.tickerid, "240", f_state(f_off("240")), lookahead=barmerge.lookahead_off)
+
+// Zero-lag override: whichever slot equals the CHART timeframe is computed
+// natively on the chart (no request.security, so no 1-bar security lag) — the
+// base signal is then evaluated on the very bar it happens. Other TFs keep the
+// non-repainting request.security value.
+rsiC = f_rsi_sma(close, rsiLen)
+momC = ta.roc(close, momLen)
+divC = f_bull_div()
+isC(tf) => timeframe.in_seconds(tf) == chartSec
+
+rsi1   = isC("1")   ? rsiC : rsi1s
+rsi5   = isC("5")   ? rsiC : rsi5s
+mom5   = isC("5")   ? momC : mom5s
+div5   = isC("5")   ? divC : div5s
+rsi10  = isC("10")  ? rsiC : rsi10s
+mom10  = isC("10")  ? momC : mom10s
+div10  = isC("10")  ? divC : div10s
+rsi30  = isC("30")  ? rsiC : rsi30s
+mom30  = isC("30")  ? momC : mom30s
+div30  = isC("30")  ? divC : div30s
+rsi60  = isC("60")  ? rsiC : rsi60s
+mom60  = isC("60")  ? momC : mom60s
+rsi240 = isC("240") ? rsiC : rsi240s
+mom240 = isC("240") ? momC : mom240s
 
 // Higher-timeframe trend (EMA + slope) for the counter-trend filter.
 f_trend(repN) =>
