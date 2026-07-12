@@ -1,6 +1,6 @@
 //@version=6
 // =============================================================================
-// GC Multi-Timeframe RSI Mean-Reversion Strategy
+// GC Multi-Timeframe RSI Mean-Reversion — SIGNAL indicator (no broker orders)
 // -----------------------------------------------------------------------------
 // Buy oversold gold when a ladder of timeframes agree, OR when a fast-timeframe
 // bullish RSI divergence prints while the higher timeframes are still soft — and
@@ -15,14 +15,11 @@
 // differ slightly; that is intentional.
 //
 // Non-repainting: higher-timeframe values use lookahead_off and (when noRepaint
-// is on) reference the last CLOSED HTF bar; strategy actions fire only on
+// is on) reference the last CLOSED HTF bar; signals are emitted only on
 // confirmed chart bars.
 // =============================================================================
 
-strategy("GC MTF RSI (SMA)", overlay=true, pyramiding=0,
-     calc_on_every_tick=false, process_orders_on_close=true,
-     initial_capital=50000, default_qty_type=strategy.fixed, default_qty_value=1,
-     max_labels_count=200)
+indicator("GC MTF RSI (SMA) — signals", overlay=true, max_labels_count=200)
 
 // ---------------------------------------------------------------- inputs: RSI
 grpR = "RSI (SMA-smoothed, per design)"
@@ -86,7 +83,6 @@ exTh240 = input.int(60, "RSI >=", inline="xX240", minval=1, maxval=99, group=grp
 
 // ----------------------------------------------------------- inputs: execution
 grpX = "Execution"
-qty = input.int(1, "Contracts per entry", minval=1, group=grpX)
 useShort = input.bool(true, "Enable short entries (short when overbought & flat)", group=grpX)
 noRepaint = input.bool(true, "Non-repainting HTF (use last closed bar)", group=grpX)
 showTable = input.bool(true, "Show status table", group=grpX)
@@ -254,76 +250,83 @@ overbought = anySelX and x1ok and x5ok and x10ok and x30ok and x60ok and x240ok
 // overbought. (Gate B divergence / momentum gate are long-side only.)
 entryShort = useShort and (overbought or bbTouchHi) and shortOk
 
-// ---------------------------------------------------------------- orders
-// Position is always flat or exactly 1 contract: we only ever enter when flat
-// (pyramiding=0, qty=1), so long and short can never coexist.
-flat = strategy.position_size == 0
-
-// ATR is frozen at entry so the INITIAL stop/target stay fixed for the trade.
-// The protective stop only ever moves in your favour (breakeven / trail),
-// never looser — so worst-case loss is still the initial ATR stop.
+// ------------------------------------------------------- signal state machine
+// No broker orders — we track a virtual position (0 flat / +1 long / -1 short)
+// so entry/exit SIGNALS fire exactly like the old strategy: enter only when
+// flat, fixed ATR target, breakeven + trailing stop, RSI/BB exits. Everything
+// is evaluated on CONFIRMED bars so the emitted signals do not repaint.
+var int   pos       = 0
+var float entryPx   = na
 var float atrEntry  = na
 var float trailStop = na
 
-// ---- entries: only when flat. Long takes precedence if both fire the same bar.
-if flat and barstate.isconfirmed
-    if entryLong
-        atrEntry  := atrVal
-        trailStop := na
-        strategy.entry("Long", strategy.long, qty=qty, comment="MTF-RSI")
-    else if entryShort
-        atrEntry  := atrVal
-        trailStop := na
-        strategy.entry("Short", strategy.short, qty=qty, comment="MTF-OB")
+goLong    = false
+goShort   = false
+exitLong  = false
+exitShort = false
 
-// ---- long management: fixed target + breakeven/trailing stop.
-if strategy.position_size > 0
-    entryPx = strategy.position_avg_price
-    tpPx    = entryPx + tpMult * atrEntry
-    trailStop := na(trailStop) ? entryPx - atrMult * atrEntry : trailStop
-    if useBE and high >= entryPx + beTrig * atrEntry
-        trailStop := math.max(trailStop, entryPx)                 // lock breakeven
-    if useTrail
-        trailStop := math.max(trailStop, close - trailMult * atrEntry)
-    strategy.exit("L-Bracket", from_entry="Long", stop=trailStop, limit=tpPx, comment="ATR")
-    if useObExit and overbought and barstate.isconfirmed
-        strategy.close("Long", comment="RSI-OB")
-    if bbTouchHi and barstate.isconfirmed
-        strategy.close("Long", comment="BB-UP")
+if barstate.isconfirmed
+    // ---- manage an open LONG: update trail, then test exits.
+    if pos == 1
+        trailStop := na(trailStop) ? entryPx - atrMult * atrEntry : trailStop
+        if useBE and high >= entryPx + beTrig * atrEntry
+            trailStop := math.max(trailStop, entryPx)             // lock breakeven
+        if useTrail
+            trailStop := math.max(trailStop, close - trailMult * atrEntry)
+        tp = entryPx + tpMult * atrEntry
+        if low <= trailStop or high >= tp or (useObExit and overbought) or bbTouchHi
+            exitLong := true
+            pos := 0
+            entryPx := na
+            trailStop := na
 
-// ---- short management: mirror of the long side.
-if strategy.position_size < 0
-    entryPx = strategy.position_avg_price
-    tpPx    = entryPx - tpMult * atrEntry
-    trailStop := na(trailStop) ? entryPx + atrMult * atrEntry : trailStop
-    if useBE and low <= entryPx - beTrig * atrEntry
-        trailStop := math.min(trailStop, entryPx)                 // lock breakeven
-    if useTrail
-        trailStop := math.min(trailStop, close + trailMult * atrEntry)
-    strategy.exit("S-Bracket", from_entry="Short", stop=trailStop, limit=tpPx, comment="ATR")
-    if useObExit and gateA and barstate.isconfirmed
-        strategy.close("Short", comment="RSI-OS")
-    if bbTouchLo and barstate.isconfirmed
-        strategy.close("Short", comment="BB-LO")
+    // ---- manage an open SHORT: mirror of the long side.
+    else if pos == -1
+        trailStop := na(trailStop) ? entryPx + atrMult * atrEntry : trailStop
+        if useBE and low <= entryPx - beTrig * atrEntry
+            trailStop := math.min(trailStop, entryPx)             // lock breakeven
+        if useTrail
+            trailStop := math.min(trailStop, close + trailMult * atrEntry)
+        tp = entryPx - tpMult * atrEntry
+        if high >= trailStop or low <= tp or (useObExit and gateA) or bbTouchLo
+            exitShort := true
+            pos := 0
+            entryPx := na
+            trailStop := na
 
-// reset the protective stop whenever flat so the next trade re-initialises it
-if flat
-    trailStop := na
+    // ---- entries: only when flat (long takes precedence on a tie).
+    if pos == 0
+        if entryLong
+            goLong := true
+            pos := 1
+            entryPx := close
+            atrEntry := atrVal
+            trailStop := na
+        else if entryShort
+            goShort := true
+            pos := -1
+            entryPx := close
+            atrEntry := atrVal
+            trailStop := na
 
 // ---------------------------------------------------------------- plotting
-plotshape(entryLong and flat, title="Long entry", style=shape.triangleup,
+plotshape(goLong,  title="Long entry",  style=shape.triangleup,
      location=location.belowbar, color=color.new(color.teal, 0), size=size.small)
-plotshape(entryShort and flat and not entryLong, title="Short entry", style=shape.triangledown,
+plotshape(goShort, title="Short entry", style=shape.triangledown,
      location=location.abovebar, color=color.new(color.maroon, 0), size=size.small)
+plotshape(exitLong,  title="Long exit",  style=shape.xcross,
+     location=location.abovebar, color=color.new(color.gray, 0), size=size.tiny)
+plotshape(exitShort, title="Short exit", style=shape.xcross,
+     location=location.belowbar, color=color.new(color.gray, 0), size=size.tiny)
 
-longPos  = strategy.position_size > 0
-shortPos = strategy.position_size < 0
+longPos  = pos == 1
+shortPos = pos == -1
 bgcolor(longPos ? color.new(color.teal, 92) : shortPos ? color.new(color.maroon, 92) : na, title="In position")
 
 // Live protective stop (red, follows breakeven/trail) and fixed take-profit
 // (green). For a short the target is below entry.
 stopLine = (longPos or shortPos) ? trailStop : na
-tpLine   = longPos ? strategy.position_avg_price + tpMult * atrEntry : shortPos ? strategy.position_avg_price - tpMult * atrEntry : na
+tpLine   = longPos ? entryPx + tpMult * atrEntry : shortPos ? entryPx - tpMult * atrEntry : na
 plot(stopLine, "Stop",   color=color.red,   style=plot.style_linebr, linewidth=1)
 plot(tpLine,   "Target", color=color.green, style=plot.style_linebr, linewidth=1)
 
@@ -336,12 +339,16 @@ plot(useBB ? bbBasis : na, "BB basis", color=color.new(color.blue, 60), linewidt
 plot(useBB ? bbLower : na, "BB lower", color=color.new(color.blue, 30), linewidth=1)
 
 // ---------------------------------------------------------------- alerts
-alertcondition(entryLong and flat, "GC MTF RSI — LONG ENTRY",
-     "GC MTF RSI long entry: multi-TF oversold/divergence + momentum aligned.")
-alertcondition(entryShort and flat and not entryLong, "GC MTF RSI — SHORT ENTRY",
-     "GC MTF RSI short entry: multi-TF overbought.")
-alertcondition(strategy.position_size > 0 and overbought, "GC MTF RSI — RSI overbought exit",
-     "GC MTF RSI: multi-TF RSI overbought — long take-profit exit.")
+// One alert per signal. Set the alert to "Once Per Bar Close" so it matches the
+// confirmed-bar logic above (no repaint). Messages are plain text — swap for a
+// JSON payload if your live system ingests webhooks.
+alertcondition(goLong,    "GC MTF RSI — LONG ENTRY",  "MTF-RSI: OPEN LONG")
+alertcondition(goShort,   "GC MTF RSI — SHORT ENTRY", "MTF-RSI: OPEN SHORT")
+alertcondition(exitLong,  "GC MTF RSI — CLOSE LONG",  "MTF-RSI: CLOSE LONG")
+alertcondition(exitShort, "GC MTF RSI — CLOSE SHORT", "MTF-RSI: CLOSE SHORT")
+// Convenience combined alerts (fire on any entry / any exit).
+alertcondition(goLong or goShort,     "GC MTF RSI — ANY ENTRY", "MTF-RSI: entry signal")
+alertcondition(exitLong or exitShort, "GC MTF RSI — ANY EXIT",  "MTF-RSI: exit signal")
 
 // ---------------------------------------------------------------- status table
 f_yn(b) => b ? "Y" : "N"
@@ -369,9 +376,9 @@ if showTable and barstate.islast
     f_row(t, 5, (useA60  ? "•1h"  : " 1h"),  rsi60,  th60,  mom60  >= momFloor ? "m>=0" : "m<0")
     f_row(t, 6, (useA240 ? "•4h"  : " 4h"),  rsi240, th240, mom240 >= momFloor ? "m>=0" : "m<0")
 
-    sigTxt = (entryLong and flat) ? "LONG" : (entryShort and flat) ? "SHORT" : "-"
-    sigCol = (entryLong and flat) ? color.new(color.green, 0) : (entryShort and flat) ? color.new(color.maroon, 0) : color.new(color.gray, 20)
-    table.cell(t, 0, 7, sigTxt, text_color=color.white, bgcolor=sigCol)
+    posTxt = pos == 1 ? "LONG" : pos == -1 ? "SHORT" : "FLAT"
+    posCol = pos == 1 ? color.new(color.teal, 0) : pos == -1 ? color.new(color.maroon, 0) : color.new(color.gray, 20)
+    table.cell(t, 0, 7, posTxt, text_color=color.white, bgcolor=posCol)
     table.cell(t, 1, 7, gateA ? "A" : "-", bgcolor=f_cellcol(gateA))
     table.cell(t, 2, 7, overbought ? "OB" : "-", bgcolor=f_cellcol(overbought))
     table.cell(t, 3, 7, momGate ? "mom" : "-", bgcolor=f_cellcol(momGate))
