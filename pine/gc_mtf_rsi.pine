@@ -1,11 +1,17 @@
 //@version=6
 // =============================================================================
-// GC Multi-Timeframe RSI Mean-Reversion — SIGNAL indicator (no broker orders)
+// Multi-Timeframe RSI Mean-Reversion — SIGNAL indicator (no broker orders)
 // -----------------------------------------------------------------------------
-// Buy oversold gold when a ladder of timeframes agree, OR when a fast-timeframe
-// bullish RSI divergence prints while the higher timeframes are still soft — and
-// only when short-term momentum has turned up. Exit on an ATR stop or when the
-// fast RSIs flip overbought.
+// Symbol-agnostic: everything is pulled for the CURRENT chart symbol via
+// syminfo.tickerid, so this runs on whatever ticker the chart shows (MGC, GC,
+// ES, CL, a stock, ...). Defaults were tuned for gold — retune the thresholds
+// per instrument.
+//
+// Go long when an oversold ladder of timeframes agree, OR on a fast-timeframe
+// bullish RSI divergence while the higher timeframes are still soft (and
+// short-term momentum has turned up); go short on the overbought mirror. A 4h
+// Bollinger-band touch is an extra trigger. Exit on an ATR stop/target,
+// breakeven/trailing stop, or the opposite RSI/BB signal.
 //
 // Timeframes: 1m / 5m / 10m / 30m / 1h / 4h  (pulled via request.security, so the
 // script can be attached to any chart timeframe — 5m is the intended base).
@@ -19,7 +25,7 @@
 // confirmed chart bars.
 // =============================================================================
 
-indicator("GC MTF RSI (SMA) — signals", overlay=true, max_labels_count=200)
+indicator("MTF RSI + BB signals", overlay=true, max_labels_count=200)
 
 // ---------------------------------------------------------------- inputs: RSI
 grpR = "RSI (SMA-smoothed, per design)"
@@ -340,15 +346,16 @@ plot(useBB ? bbLower : na, "BB lower", color=color.new(color.blue, 30), linewidt
 
 // ---------------------------------------------------------------- alerts
 // One alert per signal. Set the alert to "Once Per Bar Close" so it matches the
-// confirmed-bar logic above (no repaint). Messages are plain text — swap for a
-// JSON payload if your live system ingests webhooks.
-alertcondition(goLong,    "GC MTF RSI — LONG ENTRY",  "MTF-RSI: OPEN LONG")
-alertcondition(goShort,   "GC MTF RSI — SHORT ENTRY", "MTF-RSI: OPEN SHORT")
-alertcondition(exitLong,  "GC MTF RSI — CLOSE LONG",  "MTF-RSI: CLOSE LONG")
-alertcondition(exitShort, "GC MTF RSI — CLOSE SHORT", "MTF-RSI: CLOSE SHORT")
+// confirmed-bar logic above (no repaint). {{ticker}} / {{interval}} / {{close}}
+// are TradingView placeholders — they resolve to the CHART's symbol at fire
+// time, so the same indicator sends the right instrument on any chart.
+alertcondition(goLong,    "LONG ENTRY",  "MTF-RSI {{ticker}} {{interval}}: OPEN LONG @ {{close}}")
+alertcondition(goShort,   "SHORT ENTRY", "MTF-RSI {{ticker}} {{interval}}: OPEN SHORT @ {{close}}")
+alertcondition(exitLong,  "CLOSE LONG",  "MTF-RSI {{ticker}} {{interval}}: CLOSE LONG @ {{close}}")
+alertcondition(exitShort, "CLOSE SHORT", "MTF-RSI {{ticker}} {{interval}}: CLOSE SHORT @ {{close}}")
 // Convenience combined alerts (fire on any entry / any exit).
-alertcondition(goLong or goShort,     "GC MTF RSI — ANY ENTRY", "MTF-RSI: entry signal")
-alertcondition(exitLong or exitShort, "GC MTF RSI — ANY EXIT",  "MTF-RSI: exit signal")
+alertcondition(goLong or goShort,     "ANY ENTRY", "MTF-RSI {{ticker}}: entry signal")
+alertcondition(exitLong or exitShort, "ANY EXIT",  "MTF-RSI {{ticker}}: exit signal")
 
 // ---------------------------------------------------------------- status table
 f_yn(b) => b ? "Y" : "N"
