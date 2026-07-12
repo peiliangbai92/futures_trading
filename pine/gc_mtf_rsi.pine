@@ -21,7 +21,7 @@
 
 strategy("GC MTF RSI (SMA)", overlay=true, pyramiding=0,
      calc_on_every_tick=false, process_orders_on_close=true,
-     initial_capital=10000, default_qty_type=strategy.fixed, default_qty_value=1,
+     initial_capital=1000000, default_qty_type=strategy.fixed, default_qty_value=1,
      max_labels_count=200)
 
 // ---------------------------------------------------------------- inputs: RSI
