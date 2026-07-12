@@ -104,6 +104,13 @@ beTrig    = input.float(1.0,  "Breakeven trigger (ATR in profit)", minval=0.1, s
 useTrail  = input.bool(true,  "Trail stop by ATR", group=grpT)
 trailMult = input.float(2.0,  "Trailing distance (ATR)", minval=0.1, step=0.1, group=grpT)
 
+// ------------------------------------------------------ inputs: Bollinger Band signal
+grpBB = "Bollinger Band signal (touch lower = long, touch upper = short)"
+useBB  = input.bool(true, "Enable Bollinger Band entry/exit", group=grpBB)
+bbTf   = input.timeframe("240", "BB timeframe", group=grpBB)
+bbLen  = input.int(20, "BB length", minval=1, group=grpBB)
+bbMult = input.float(2.0, "BB stdev multiple", minval=0.1, step=0.1, group=grpBB)
+
 // Per-timeframe non-repaint offset. A timeframe HIGHER than the chart would
 // repaint if we read its live (unclosed) bar, so those use 1 = last CLOSED bar.
 // The chart timeframe and anything lower use 0 = the current bar, so the base
@@ -196,6 +203,20 @@ trendDn = close < trendEma and trendSlope < 0
 longOk  = (not useTrend) or (not trendDn)   // don't buy dips in a confirmed downtrend
 shortOk = (not useTrend) or (not trendUp)   // don't sell rips in a confirmed uptrend
 
+// Bollinger Band on a higher timeframe (default 4h). Bands come from the last
+// CLOSED HTF bar (f_off) so they don't repaint; we then test the chart's live
+// price against them.
+f_bb(repN) =>
+    basis = ta.sma(close, bbLen)
+    dev   = bbMult * ta.stdev(close, bbLen)
+    [basis[repN], (basis + dev)[repN], (basis - dev)[repN]]
+[bbBasis, bbUpper, bbLower] = request.security(syminfo.tickerid, bbTf, f_bb(f_off(bbTf)), lookahead=barmerge.lookahead_off)
+
+// Touch = the bar's range reached the band. Lower touch is a long trigger,
+// upper touch a short trigger (and the opposite-side exit).
+bbTouchLo = useBB and low  <= bbLower
+bbTouchHi = useBB and high >= bbUpper
+
 // ---------------------------------------------------------------- signal logic
 // Gate A — every TICKED timeframe must be oversold (unticked ones are ignored).
 a1ok   = not useA1   or rsi1   <= th1
@@ -214,7 +235,7 @@ gateB = useDivGate and (div5 or div10 or div30) and rsi60 < divRsi60 and rsi240 
 // Momentum gate — fast TFs turning up, slow TFs not falling.
 momGate = (not useMomentum) or (mom5 > momThr and mom10 > momThr and mom30 > momThr and mom60 >= momFloor and mom240 >= momFloor)
 
-entryLong = (gateA or gateB) and momGate and longOk
+entryLong = (((gateA or gateB) and momGate) or bbTouchLo) and longOk
 
 // Exit conditions
 atrVal = ta.atr(atrLen)
@@ -231,7 +252,7 @@ overbought = anySelX and x1ok and x5ok and x10ok and x30ok and x60ok and x240ok
 
 // Short entry — symmetric to the long: go short when the ticked TFs are
 // overbought. (Gate B divergence / momentum gate are long-side only.)
-entryShort = useShort and overbought and shortOk
+entryShort = useShort and (overbought or bbTouchHi) and shortOk
 
 // ---------------------------------------------------------------- orders
 // Position is always flat or exactly 1 contract: we only ever enter when flat
@@ -267,6 +288,8 @@ if strategy.position_size > 0
     strategy.exit("L-Bracket", from_entry="Long", stop=trailStop, limit=tpPx, comment="ATR")
     if useObExit and overbought and barstate.isconfirmed
         strategy.close("Long", comment="RSI-OB")
+    if bbTouchHi and barstate.isconfirmed
+        strategy.close("Long", comment="BB-UP")
 
 // ---- short management: mirror of the long side.
 if strategy.position_size < 0
@@ -280,6 +303,8 @@ if strategy.position_size < 0
     strategy.exit("S-Bracket", from_entry="Short", stop=trailStop, limit=tpPx, comment="ATR")
     if useObExit and gateA and barstate.isconfirmed
         strategy.close("Short", comment="RSI-OS")
+    if bbTouchLo and barstate.isconfirmed
+        strategy.close("Short", comment="BB-LO")
 
 // reset the protective stop whenever flat so the next trade re-initialises it
 if flat
@@ -304,6 +329,11 @@ plot(tpLine,   "Target", color=color.green, style=plot.style_linebr, linewidth=1
 
 // Higher-timeframe trend EMA — entries are blocked against a confirmed trend.
 plot(useTrend ? trendEma : na, "Trend EMA", color=color.new(color.orange, 0), linewidth=1)
+
+// 4h Bollinger Bands — touch lower = long trigger, touch upper = short trigger.
+plot(useBB ? bbUpper : na, "BB upper", color=color.new(color.blue, 30), linewidth=1)
+plot(useBB ? bbBasis : na, "BB basis", color=color.new(color.blue, 60), linewidth=1)
+plot(useBB ? bbLower : na, "BB lower", color=color.new(color.blue, 30), linewidth=1)
 
 // ---------------------------------------------------------------- alerts
 alertcondition(entryLong and flat, "GC MTF RSI — LONG ENTRY",
