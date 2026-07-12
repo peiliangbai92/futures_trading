@@ -87,6 +87,7 @@ exTh240 = input.int(60, "RSI >=", inline="xX240", minval=1, maxval=99, group=grp
 // ----------------------------------------------------------- inputs: execution
 grpX = "Execution"
 qty = input.int(1, "Contracts per entry", minval=1, group=grpX)
+useShort = input.bool(true, "Enable short entries (short when overbought & flat)", group=grpX)
 noRepaint = input.bool(true, "Non-repainting HTF (use last closed bar)", group=grpX)
 showTable = input.bool(true, "Show status table", group=grpX)
 
@@ -173,42 +174,69 @@ x240ok = not useX240 or rsi240 >= exTh240
 anySelX = useX1 or useX5 or useX10 or useX30 or useX60 or useX240
 overbought = anySelX and x1ok and x5ok and x10ok and x30ok and x60ok and x240ok
 
+// Short entry — symmetric to the long: go short when the ticked TFs are
+// overbought. (Gate B divergence / momentum gate are long-side only.)
+entryShort = useShort and overbought
+
 // ---------------------------------------------------------------- orders
+// Position is always flat or exactly 1 contract: we only ever enter when flat
+// (pyramiding=0, qty=1), so long and short can never coexist.
 flat = strategy.position_size == 0
 
 // ATR is frozen at entry so the stop/target levels stay FIXED for the life of
 // the trade (they don't drift bar-to-bar as live ATR changes).
 var float atrEntry = na
 
-if entryLong and flat and barstate.isconfirmed
-    atrEntry := atrVal
-    strategy.entry("Long", strategy.long, qty=qty, comment="MTF-RSI")
+// ---- entries: only when flat. Long takes precedence if both fire the same bar.
+if flat and barstate.isconfirmed
+    if entryLong
+        atrEntry := atrVal
+        strategy.entry("Long", strategy.long, qty=qty, comment="MTF-RSI")
+    else if entryShort
+        atrEntry := atrVal
+        strategy.entry("Short", strategy.short, qty=qty, comment="MTF-OB")
 
+// ---- long management: fixed ATR bracket + optional overbought take-profit.
 if strategy.position_size > 0
     stopPx = strategy.position_avg_price - atrMult * atrEntry   // loss floor
     tpPx   = strategy.position_avg_price + tpMult  * atrEntry   // profit target
-    // One OCO bracket: whichever of stop / take-profit is hit first closes the trade.
-    strategy.exit("Bracket", from_entry="Long", stop=stopPx, limit=tpPx, comment="ATR")
-    // Optional extra profit-taking exit when the fast RSIs are overbought.
+    strategy.exit("L-Bracket", from_entry="Long", stop=stopPx, limit=tpPx, comment="ATR")
     if useObExit and overbought and barstate.isconfirmed
         strategy.close("Long", comment="RSI-OB")
 
+// ---- short management: mirror bracket (stop above, target below) + optional
+// oversold cover.
+if strategy.position_size < 0
+    stopPx = strategy.position_avg_price + atrMult * atrEntry   // loss ceiling
+    tpPx   = strategy.position_avg_price - tpMult  * atrEntry   // profit target
+    strategy.exit("S-Bracket", from_entry="Short", stop=stopPx, limit=tpPx, comment="ATR")
+    if useObExit and gateA and barstate.isconfirmed
+        strategy.close("Short", comment="RSI-OS")
+
 // ---------------------------------------------------------------- plotting
-plotshape(entryLong and flat, title="Entry", style=shape.triangleup,
+plotshape(entryLong and flat, title="Long entry", style=shape.triangleup,
      location=location.belowbar, color=color.new(color.teal, 0), size=size.small)
-bgcolor(strategy.position_size > 0 ? color.new(color.teal, 92) : na, title="In position")
+plotshape(entryShort and flat and not entryLong, title="Short entry", style=shape.triangledown,
+     location=location.abovebar, color=color.new(color.maroon, 0), size=size.small)
+
+longPos  = strategy.position_size > 0
+shortPos = strategy.position_size < 0
+bgcolor(longPos ? color.new(color.teal, 92) : shortPos ? color.new(color.maroon, 92) : na, title="In position")
 
 // Fixed stop (red) and take-profit (green) levels while in a trade — exits should
-// land on these lines. style_linebr breaks the line between trades.
-inPos = strategy.position_size > 0
-plot(inPos ? strategy.position_avg_price - atrMult * atrEntry : na, "Stop",   color=color.red,   style=plot.style_linebr, linewidth=1)
-plot(inPos ? strategy.position_avg_price + tpMult  * atrEntry : na, "Target", color=color.green, style=plot.style_linebr, linewidth=1)
+// land on these lines. For a short the stop is above and the target below.
+stopLine = longPos ? strategy.position_avg_price - atrMult * atrEntry : shortPos ? strategy.position_avg_price + atrMult * atrEntry : na
+tpLine   = longPos ? strategy.position_avg_price + tpMult  * atrEntry : shortPos ? strategy.position_avg_price - tpMult  * atrEntry : na
+plot(stopLine, "Stop",   color=color.red,   style=plot.style_linebr, linewidth=1)
+plot(tpLine,   "Target", color=color.green, style=plot.style_linebr, linewidth=1)
 
 // ---------------------------------------------------------------- alerts
-alertcondition(entryLong and flat, "GC MTF RSI — ENTRY",
+alertcondition(entryLong and flat, "GC MTF RSI — LONG ENTRY",
      "GC MTF RSI long entry: multi-TF oversold/divergence + momentum aligned.")
+alertcondition(entryShort and flat and not entryLong, "GC MTF RSI — SHORT ENTRY",
+     "GC MTF RSI short entry: multi-TF overbought.")
 alertcondition(strategy.position_size > 0 and overbought, "GC MTF RSI — RSI overbought exit",
-     "GC MTF RSI: fast-TF RSI overbought — take-profit exit.")
+     "GC MTF RSI: multi-TF RSI overbought — long take-profit exit.")
 
 // ---------------------------------------------------------------- status table
 f_yn(b) => b ? "Y" : "N"
@@ -236,9 +264,9 @@ if showTable and barstate.islast
     f_row(t, 5, (useA60  ? "•1h"  : " 1h"),  rsi60,  th60,  mom60  >= momFloor ? "m>=0" : "m<0")
     f_row(t, 6, (useA240 ? "•4h"  : " 4h"),  rsi240, th240, mom240 >= momFloor ? "m>=0" : "m<0")
 
-    sig = entryLong and flat
-    table.cell(t, 0, 7, "SIGNAL", text_color=color.white,
-         bgcolor=sig ? color.new(color.green, 0) : color.new(color.gray, 20))
+    sigTxt = (entryLong and flat) ? "LONG" : (entryShort and flat) ? "SHORT" : "-"
+    sigCol = (entryLong and flat) ? color.new(color.green, 0) : (entryShort and flat) ? color.new(color.maroon, 0) : color.new(color.gray, 20)
+    table.cell(t, 0, 7, sigTxt, text_color=color.white, bgcolor=sigCol)
     table.cell(t, 1, 7, gateA ? "A" : "-", bgcolor=f_cellcol(gateA))
-    table.cell(t, 2, 7, gateB ? "B" : "-", bgcolor=f_cellcol(gateB))
+    table.cell(t, 2, 7, overbought ? "OB" : "-", bgcolor=f_cellcol(overbought))
     table.cell(t, 3, 7, momGate ? "mom" : "-", bgcolor=f_cellcol(momGate))
