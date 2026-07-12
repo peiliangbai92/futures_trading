@@ -383,9 +383,7 @@ if showTable and barstate.islast
     f_row(t, 5, (useA60  ? "•1h"  : " 1h"),  rsi60,  th60,  mom60  >= momFloor ? "m>=0" : "m<0")
     f_row(t, 6, (useA240 ? "•4h"  : " 4h"),  rsi240, th240, mom240 >= momFloor ? "m>=0" : "m<0")
 
-    posTxt = pos == 1 ? "LONG" : pos == -1 ? "SHORT" : "FLAT"
-    posCol = pos == 1 ? color.new(color.teal, 0) : pos == -1 ? color.new(color.maroon, 0) : color.new(color.gray, 20)
-    table.cell(t, 0, 7, posTxt, text_color=color.white, bgcolor=posCol)
+    table.cell(t, 0, 7, "SIG", text_color=color.white, bgcolor=color.new(color.blue, 0))
     table.cell(t, 1, 7, gateA ? "A" : "-", bgcolor=f_cellcol(gateA))
     table.cell(t, 2, 7, overbought ? "OB" : "-", bgcolor=f_cellcol(overbought))
     table.cell(t, 3, 7, momGate ? "mom" : "-", bgcolor=f_cellcol(momGate))
