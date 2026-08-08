@@ -1,0 +1,41 @@
+name: ci
+
+# Test gate for the code the live-money workflows (daily-signal / daily-briefing)
+# install and run. Pure-code tests only — the data-backed tests skip themselves
+# when data/raw parquets are absent, so no market-data fetch happens here.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "tracking/**"     # the daily bot commits ([skip ci] guards these too)
+      - "docs/**"
+      - "pine/**"
+      - "**.md"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # match the live workflows' interpreter
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest -q

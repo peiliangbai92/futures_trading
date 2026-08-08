@@ -91,6 +91,8 @@ def status(symbols, as_of, do_log):
     acct = load_account()
     sigs = [strategy.live_signal(s, since=(acct.get(s) or {}).get("go_live")) for s in symbols]
     cb = circuit_breaker.evaluate(tuple(symbols), persist=do_log, as_of=as_of)
+    for s in sigs:      # preserve the pre-suppression signal in the forward record
+        s["raw_action"] = s["your_action"]
     if cb["halted"]:                       # halted => suppress new entries (only-close)
         for s in sigs:
             if s["your_action"].startswith(("BUY", "ADD")):

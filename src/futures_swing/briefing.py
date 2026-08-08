@@ -79,8 +79,9 @@ def _gamma_lines(brief_date: str) -> list[str]:
     if not snap or not all(k in snap for k in GAMMA_REQUIRED):
         return []
     days = _stale_days(snap["asof"], brief_date)
-    if days is not None and days > GAMMA_STALE_DAYS:   # too old → suppress specific levels
-        return [f"**GC gamma map** — unavailable (snapshot {days}d stale, as of {snap['asof']}; "
+    if days is None or days > GAMMA_STALE_DAYS:   # too old (or unparseable asof) → suppress
+        age = f"snapshot {days}d stale" if days is not None else "snapshot date unparseable"
+        return [f"**GC gamma map** — unavailable ({age}, as of {snap['asof']}; "
                 f"regenerate via `python -m futures_swing.intraday.gold_gamma`).", ""]
     stale = f" ⚠ as of {snap['asof']}" if days and days > 0 else ""
     icon = {-1: "🔴", 1: "🟢", 0: "⚪"}.get(snap["regime"], "⚪")
