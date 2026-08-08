@@ -87,7 +87,9 @@ def build_signals(symbol: str, cfg: dict, sharpe_override: pd.Series | None = No
     sell_days: set[int] = set()
     if cfg["sell"] == "mom20":
         ret20 = np.log(df["close"] / df["close"].shift(20))
-        sell_days = {k for k in range(len(df)) if ret20.iloc[k] < 0 and ret20.iloc[k - 1] >= 0}
+        # k >= 1 so iloc[k-1] can't wrap to the LAST bar at k=0 (a latent
+        # look-ahead read, currently masked only because ret20.iloc[0] is NaN)
+        sell_days = {k for k in range(1, len(df)) if ret20.iloc[k] < 0 and ret20.iloc[k - 1] >= 0}
     return df, buy_days, sell_days
 
 

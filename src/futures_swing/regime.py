@@ -112,6 +112,14 @@ def _fit_filter(obs: pd.DataFrame, *, vol_col: str, n_states: int, fit_cutoff: s
     train = obs[obs.index < pd.Timestamp(fit_cutoff)]
     if len(train) < 100:                          # fallback if too little pre-cutoff data
         train = obs.iloc[: max(100, len(obs) // 2)]
+        warnings.warn(
+            f"HMM fit window extends past fit_cutoff={fit_cutoff} (only "
+            f"{len(obs[obs.index < pd.Timestamp(fit_cutoff)])} pre-cutoff rows): "
+            f"training through {train.index[-1].date()} — posteriors before that "
+            "date are NOT causal. Fine for exploration; do not use in a "
+            "walk-forward whose OOS region overlaps the fit window.",
+            stacklevel=2,
+        )
     mu, sd = train.mean(), train.std(ddof=0).replace(0, 1.0)
     Z = (obs - mu) / sd
     Ztr = Z.loc[train.index].to_numpy()
@@ -171,6 +179,8 @@ def hmm_features_for(symbol: str, *, obs_source: str = "market", n_states: int =
         obs = _gold_observations(data_loader.load_close("GC"), data_loader.load_close("REAL_YIELD"),
                                  data_loader.load_close("DXY"), vol_window=vol_window)
     else:
-        obs = _market_observations(data_loader.load_close("ES"), data_loader.load_close("VIX"),
-                                   vol_window=vol_window)
+        # roll-adjusted ES: consistent with the trend/vol features and target, so
+        # quarterly roll gaps don't leak carry-sized fake returns into the obs
+        obs = _market_observations(data_loader.load_ohlc_model("ES")["close"],
+                                   data_loader.load_close("VIX"), vol_window=vol_window)
     return _fit_filter(obs, vol_col="rvol", n_states=n_states, fit_cutoff=fit_cutoff, seed=seed)

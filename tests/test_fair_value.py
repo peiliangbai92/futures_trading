@@ -43,7 +43,8 @@ def test_degrades_when_inputs_missing(monkeypatch):
     assert fv.line("ES") is None
 
 
-@pytest.mark.skipif(not (data_loader.RAW_DIR / "SPX_CASH.parquet").exists(),
+@pytest.mark.skipif(not all((data_loader.RAW_DIR / f"{k}.parquet").exists()
+                            for k in ("SPX_CASH", "SOFR", "ES")),
                     reason="fair-value inputs not built (run fair_value --refresh)")
 def test_es_summary_real_inputs():
     s = fv.summary("ES")

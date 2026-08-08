@@ -85,7 +85,12 @@ def book_metrics(symbols=("ES", "GC")) -> dict:
 
 def evaluate(symbols=("ES", "GC"), *, persist=False, as_of=None) -> dict:
     """Check the breaker. ``persist`` writes a newly-tripped halt to the state
-    file (so CI commits the sticky halt). Returns status + metrics."""
+    file (so CI commits the sticky halt). Returns status + metrics.
+
+    Persistence semantics: a fresh breach is always REPORTED as halted in the
+    return value, but only ``persist=True`` (the daily ``monitor --log`` run)
+    makes it sticky by writing tracking/circuit_breaker.json — a read-only
+    status check (the bare CLI) must not mutate committed state."""
     m = book_metrics(symbols)
     st = _load_state()
     breaches = []

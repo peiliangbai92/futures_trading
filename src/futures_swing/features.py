@@ -26,6 +26,9 @@ MA_WINDOWS = (20, 50, 100, 200)
 YZ_WINDOW = 21
 ATR_WINDOW = 14
 VOL_CHG_WINDOW = 20
+# Dividend-paying ETF feeds: their return features must use the total-return
+# (adj_close) series or every ex-dividend date injects a fake negative return.
+TOTAL_RETURN_KEYS = {"TIP", "HYG", "LQD"}
 
 
 # --------------------------------------------------------------------- blocks
@@ -124,7 +127,8 @@ def build_feature_matrix(
         regime_mode = INSTRUMENTS[symbol].get("regime", "rule")
     ohlc = data_loader.load_ohlc_model(symbol)
     macro_keys = list(MACRO_SYMBOLS) + (list(FRED_SERIES) if include_fred else [])
-    macros = {k: data_loader.load_close(k) for k in macro_keys}
+    macros = {k: (data_loader.load_total_return_close(k) if k in TOTAL_RETURN_KEYS
+                  else data_loader.load_close(k)) for k in macro_keys}
 
     feats = pd.concat(
         [_trend_block(ohlc["close"]), _vol_block(ohlc)],
@@ -137,7 +141,9 @@ def build_feature_matrix(
         hf = regime.hmm_features_for(symbol, **(hmm_kwargs or {})).reindex(feats.index, method="ffill")
         feats = feats.join(hf)
     elif regime_mode == "rule":
-        es_close, vix_close = data_loader.load_close("ES"), data_loader.load_close("VIX")
+        # roll-adjusted ES so quarterly roll gaps don't distort ES-vs-MA100
+        es_close = data_loader.load_ohlc_model("ES")["close"]
+        vix_close = data_loader.load_close("VIX")
         reg = regime.classify(es_close, vix_close)
         feats["regime_code"] = regime.code_series(reg.reindex(feats.index, method="ffill"))
     else:

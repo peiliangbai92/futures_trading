@@ -50,7 +50,7 @@ def _assemble(symbol: str, pred: pd.Series) -> pd.DataFrame:
     ohlc = data_loader.load_ohlc_model(symbol)
     atr = volmod.atr(ohlc, window=14)
     sig = signal.compute_signals(symbol, pred.dropna())
-    reg = regime.classify(data_loader.load_close("ES"), data_loader.load_close("VIX"))
+    reg = regime.classify(data_loader.load_ohlc_model("ES")["close"], data_loader.load_close("VIX"))
 
     df = pd.DataFrame(index=sig.index)
     for col in ("open", "high", "low", "close"):

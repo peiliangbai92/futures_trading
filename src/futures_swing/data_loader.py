@@ -176,6 +176,23 @@ def load_close(key: str) -> pd.Series:
     return load(key)["close"].rename(key)
 
 
+def load_total_return_close(key: str) -> pd.Series:
+    """Dividend-adjusted close for ETF-style feeds, falling back to the raw
+    close when no adj_close exists (indices, futures, FRED series).
+
+    Use this for RETURN features of dividend-paying ETFs (TIP / HYG / LQD):
+    raw-close returns absorb a spurious ~0.2-0.5% drop on every monthly
+    ex-dividend date, which contaminates rolling-return features. Sporadic
+    missing adj_close rows are left NaN (never spliced with the raw close —
+    the two series differ by the cumulative distribution factor)."""
+    df = load(key)
+    if "adj_close" in df.columns:
+        adj = pd.to_numeric(df["adj_close"], errors="coerce")
+        if adj.notna().any():
+            return adj.rename(key)
+    return df["close"].rename(key)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Refresh the V1 yfinance data cache")
     ap.add_argument("--period", default="max", help="yfinance period (default: max)")
