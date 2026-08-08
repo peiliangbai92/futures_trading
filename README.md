@@ -164,13 +164,14 @@ sizing. One MGC at gold ~$4,000 is ~$40k notional, so a $50k account is
 *sub-min-size* for GC at a 10% vol target and coarse for ES; a $220k account
 sizes both cleanly and is the default. Use `--equity` to reflect your account.
 
-> Caveat: Yahoo continuous futures carry un-adjusted quarterly roll jumps (small
-> artifact in multi-day returns); Databento continuous contracts fix this in V2.
+> Caveat: ES is roll-jump back-adjusted since V1.7 (cash-anchored, see
+> `roll_adjust.py`); GC and the macro futures feeds (CL=F) still carry
+> un-adjusted roll jumps — Databento continuous contracts fix those in V2.
 
 ### V1.4 — overfit-gap diagnosis + per-symbol model class (ridge for ES)
 
 A rigorous, adversarially-verified diagnosis (`diagnostics.py`,
-`reports/diagnostics/{ES,GC}.json`, `GAP_DIAGNOSIS.md`) settled what the
+`reports/diagnostics/{ES,GC}.json`, `docs/GAP_DIAGNOSIS.md`) settled what the
 `IS-OOS gap` meant and reshaped the ES alpha:
 
 - **The gap is benign capacity-overfit, not leakage** (ruled out 5 ways). As

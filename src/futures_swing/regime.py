@@ -1,7 +1,7 @@
 """Rule-based market regime (V1).
 
 A single market-wide risk regime derived from the S&P (ES) trend vs its MA100
-and the VIX level / spike, per the plan (doc Section 7.2). Used both as a model
+and the VIX level / spike. Used both as a model
 feature and as a gate (e.g. block shorts in strong risk-on, cut size in stress).
 
 Point-in-time: every value at date t uses only data <= t (MA, VIX, VIX change).

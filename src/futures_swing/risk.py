@@ -1,10 +1,9 @@
 """Risk layer — position sizing, portfolio gates, and event filter.
 
-Sizing is risk-based (doc Section 12): each trade risks a fixed fraction of
-equity to its stop, scaled by conviction (|Sharpe|), expressed in **micro
-contracts** (MES $5/pt, MGC $10/pt) so a small account can size finely.
-Portfolio gates (Section 13): cut size on drawdown, block new trades after a
-bad day, and stand aside around macro events.
+Sizing is risk-based: each trade risks a fixed fraction of equity to its stop,
+scaled by conviction (|Sharpe|), expressed in **micro contracts** (MES $5/pt,
+MGC $10/pt) so a small account can size finely. Portfolio gates: cut size on
+drawdown, and stand aside around macro events.
 """
 from __future__ import annotations
 

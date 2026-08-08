@@ -1,6 +1,6 @@
 """Execution rules — entry / stop / target levels and intrabar exit logic.
 
-Alpha decides *direction*; execution decides *price levels* (doc Sections 10-11).
+Alpha decides *direction*; execution decides *price levels*.
 V1 keeps it simple and backtestable: enter at the next session's open, ATR-based
 stop and target, plus a time stop (the horizon) and a signal-reversal exit
 handled by the backtest loop.

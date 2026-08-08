@@ -1,7 +1,7 @@
 """Signal generation — risk-adjusted (Sharpe) signal from the alpha forecast.
 
 The tradeable quantity is not the raw predicted return but the *risk-adjusted*
-forecast: ``sharpe = predicted_return / forecast_vol`` (doc Section 9), where
+forecast: ``sharpe = predicted_return / forecast_vol``, where
 forecast vol is trailing close-to-close realized vol scaled to the forecast
 horizon. Thresholds map the Sharpe signal to long / flat / short.
 """

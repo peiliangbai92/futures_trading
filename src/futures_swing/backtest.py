@@ -73,7 +73,7 @@ def simulate(
 ) -> tuple[list[dict], pd.Series, int]:
     spec = INSTRUMENTS[symbol]
     pv, tick, horizon = spec["point_value"], spec["tick"], spec["horizon"]
-    target_vol = spec.get("target_vol", target_vol)   # per-symbol de-rate (GC runs at 0.05)
+    target_vol = spec.get("target_vol", target_vol)   # per-symbol override (both run at 0.10)
     roundtrip_cost = 2 * COMMISSION_PER_SIDE + 2 * SLIPPAGE_TICKS * tick * pv  # $ / contract
     events = load_event_dates()
     # Exit policy (V1.5). "atr": fixed ATR stop/target + horizon time-stop (default,
@@ -308,7 +308,7 @@ def _write_report(path: Path, symbol: str, s: dict, base: dict, regime_hits: pd.
         f"- Period: {s['period']}  (horizon {s['horizon']}d)",
         f"- Forecast quality: OOS IC {wf.oos_ic:+.3f}, OOS hit {wf.oos_hit:.3f}, "
         f"IS-OOS IC gap {wf.is_oos_gap:+.3f} "
-        f"({'large — capacity-overfit (benign, see GAP_DIAGNOSIS.md)' if wf.is_oos_gap > 0.15 else 'small — no capacity overfit'})",
+        f"({'large — capacity-overfit (benign, see docs/GAP_DIAGNOSIS.md)' if wf.is_oos_gap > 0.15 else 'small — no capacity overfit'})",
         f"- Effective N {wf.effective_n:.0f} on {wf.n_features} features", "",
         f"## Strategy (net of micro-contract costs; sizing={s['sizing_mode']})",
         f"- {_fmt(s)}",
@@ -325,8 +325,10 @@ def _write_report(path: Path, symbol: str, s: dict, base: dict, regime_hits: pd.
         f"on risk-adjusted return.", "",
         "## Hit rate by regime",
         "```", regime_hits.to_string() if not regime_hits.empty else "_no trades_", "```", "",
-        "_Caveat: Yahoo continuous-contract roll jumps are not back-adjusted; "
-        "costs modeled as commission + 1-tick slippage per side._",
+        "_Caveat: ES is roll-jump back-adjusted (cash-anchored, see roll_adjust.py); "
+        "GC and macro feeds (e.g. CL=F) are NOT — their roll gaps remain in features "
+        "and PnL until V2 (Databento). Costs modeled as commission + 1-tick slippage "
+        "per side._",
     ]
     path.write_text("\n".join(lines))
 
