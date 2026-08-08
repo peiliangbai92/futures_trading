@@ -13,7 +13,7 @@ This extractor is the ready-to-go plumbing: as the daily cron accrues snapshots
 (or once historical chains are purchased), call ``feature_panel`` to get a daily
 feature frame and evaluate it as GC features.
 
-CLI:  python -m futures_swing.gld_flow_features --date 2026-06-21
+CLI:  python -m futures_swing.research.gld_flow_features --date 2026-06-21
 """
 from __future__ import annotations
 
@@ -24,7 +24,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-QR_OPTION_ROOT = Path("/Users/peiliangbai/Documents/GitHub/QuantitativeResearch/reports/option")
+from ..intraday.gamma import QR_REPO
+
+QR_OPTION_ROOT = QR_REPO / "reports" / "option"
 SYMBOL = "GLD"
 
 _SPEED_DIR = {"negative": -1.0, "flat_to_negative": -0.5, "flat": 0.0,

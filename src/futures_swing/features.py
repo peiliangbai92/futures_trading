@@ -26,7 +26,6 @@ MA_WINDOWS = (20, 50, 100, 200)
 YZ_WINDOW = 21
 ATR_WINDOW = 14
 VOL_CHG_WINDOW = 20
-WARMUP = max(MA_WINDOWS) + 5  # rows before this lack the longest MA
 
 
 # --------------------------------------------------------------------- blocks
@@ -134,11 +133,11 @@ def build_feature_matrix(
     feats = feats.join(_macro_block(symbol, feats.index, macros, include_fred=include_fred))
 
     # market-wide regime (ES + VIX), reindexed onto this instrument's calendar
-    es_close, vix_close = data_loader.load_close("ES"), data_loader.load_close("VIX")
     if regime_mode == "hmm":
         hf = regime.hmm_features_for(symbol, **(hmm_kwargs or {})).reindex(feats.index, method="ffill")
         feats = feats.join(hf)
     elif regime_mode == "rule":
+        es_close, vix_close = data_loader.load_close("ES"), data_loader.load_close("VIX")
         reg = regime.classify(es_close, vix_close)
         feats["regime_code"] = regime.code_series(reg.reindex(feats.index, method="ffill"))
     else:
@@ -150,11 +149,6 @@ def build_feature_matrix(
         # remaining sporadic NaNs (e.g. early VVIX) are left for LightGBM.
         feats = feats[feats[f"ma_dist_{max(MA_WINDOWS)}"].notna()]
     return feats
-
-
-def feature_columns(symbol: str) -> list[str]:
-    """Column names of the feature matrix (no target)."""
-    return list(build_feature_matrix(symbol, dropna=True).columns)
 
 
 def forward_log_return(close: pd.Series, horizon: int) -> pd.Series:

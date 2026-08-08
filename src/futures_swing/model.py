@@ -239,25 +239,16 @@ def walk_forward(symbol: str, *, params: dict | None = None, embargo: int | None
     )
 
 
-def fit_full(symbol: str, *, params: dict | None = None, embargo: int | None = None, alpha_spec: dict | None = None):
-    """Train on all rows that have a realized target (minus the final purge gap),
-    for live prediction. Returns (model, feature_cols, last_train_date)."""
+def fit_full(symbol: str, *, params: dict | None = None, alpha_spec: dict | None = None):
+    """Train on all rows that have a realized target, for live prediction.
+    Returns (model, feature_cols, last_train_date). No tail purge is needed:
+    every training row's label window is already realized."""
     alpha = _resolve_alpha(symbol, alpha_spec)
-    X, y, horizon = make_dataset(symbol)
+    X, y, _horizon = make_dataset(symbol)
     X = _select_features(X, alpha)
-    embargo = horizon if embargo is None else embargo
-    cut = len(X)  # all targets already realized; purge nothing extra at the tail
     model = _make_estimator(alpha, params)
-    model.fit(X.iloc[:cut], y.iloc[:cut])
-    return model, list(X.columns), X.index[cut - 1]
-
-
-def predict_latest(symbol: str, model, feature_cols: list[str]) -> tuple[pd.Timestamp, float]:
-    """Forecast the most recent date's forward return (features available today)."""
-    X = features.build_feature_matrix(symbol, dropna=True)[feature_cols]
-    last_date = X.index[-1]
-    pred = float(model.predict(X.iloc[[-1]])[0])
-    return last_date, pred
+    model.fit(X, y)
+    return model, list(X.columns), X.index[-1]
 
 
 def main() -> None:

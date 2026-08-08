@@ -18,7 +18,7 @@ Legs:
               rebalanced, net of a per-turnover futures cost.
 
 CLI:
-    python -m futures_swing.portfolio --symbol ES
+    python -m futures_swing.research.portfolio --symbol ES
 """
 from __future__ import annotations
 
@@ -27,9 +27,9 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from . import data_loader, model
-from .backtest import INIT_EQUITY, _assemble, _ann_stats, simulate
-from .vol import close_to_close_volatility
+from .. import data_loader, model
+from ..backtest import INIT_EQUITY, _assemble, _ann_stats, simulate
+from ..vol import close_to_close_volatility
 
 TRADING_DAYS = 252
 

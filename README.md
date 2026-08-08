@@ -6,9 +6,9 @@ signal, attaches ATR-based entry/stop/target and micro-contract sizing, and
 validates everything with a purged walk-forward backtest.
 
 ```
-data_loader → features → regime → model (LightGBM alpha) → signal (Sharpe)
+data_loader → features → regime → model (per-symbol alpha) → signal (Sharpe)
             → execution (entry/stop/target) → risk (sizing + gates)
-            → backtest (walk-forward)  +  pipeline (daily signal)
+            → backtest (walk-forward)  +  strategy → monitor/briefing (live, CI)
 ```
 
 ES and GC are modeled **independently** (different macro drivers), unified only at
@@ -49,8 +49,11 @@ python -m futures_swing.model --symbol GC
 # 3. full backtest -> reports/<SYM>/backtest.md + trades/equity CSVs
 python -m futures_swing.backtest --symbols ES GC
 
-# 4. today's signal -> data/signals/latest_signal.csv
-python -m futures_swing.pipeline --equity 50000
+# 4. today's live signal + forward log (what daily-signal.yml runs in CI)
+python -m futures_swing.monitor                # add --log to append tracking/live_log.csv
+
+# 5. daily briefing markdown (what daily-briefing.yml posts to the GitHub issue)
+python -m futures_swing.briefing --out out/briefing.md
 
 # tests (no-lookahead + alignment guarantees)
 pytest -q

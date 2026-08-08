@@ -33,6 +33,8 @@ MAX_LOTS = 2
 
 DESIGN = {
     "ES": dict(buy_th=0.20, cooldown=15, sell="mom20", breakout=0),
+    # NB: trail_win is INERT — the trailing stop uses only trail_drop vs the
+    # running peak. It is kept because the frozen registration JSON includes it.
     "GC": dict(buy_th=0.30, cooldown=20, sell="trail", trail_drop=0.08, trail_win=60, breakout=40),
 }
 

@@ -51,15 +51,6 @@ def classify(
     return labels.rename("regime")
 
 
-def classify_default(**kwargs) -> pd.Series:
-    """Convenience: load ES + VIX from the cache and classify."""
-    from . import data_loader
-
-    es = data_loader.load_close("ES")
-    vix = data_loader.load_close("VIX")
-    return classify(es, vix, **kwargs)
-
-
 def code_series(labels: pd.Series) -> pd.Series:
     """Map regime labels to ordinal codes (NA-safe) for use as a model feature."""
     return labels.map(REGIME_CODES).astype("float").rename("regime_code")
@@ -183,10 +174,3 @@ def hmm_features_for(symbol: str, *, obs_source: str = "market", n_states: int =
         obs = _market_observations(data_loader.load_close("ES"), data_loader.load_close("VIX"),
                                    vol_window=vol_window)
     return _fit_filter(obs, vol_col="rvol", n_states=n_states, fit_cutoff=fit_cutoff, seed=seed)
-
-
-def hmm_features_default(**kwargs) -> pd.DataFrame:
-    """Convenience: load ES + VIX from the cache and compute the market HMM."""
-    from . import data_loader
-
-    return hmm_features(data_loader.load_close("ES"), data_loader.load_close("VIX"), **kwargs)

@@ -17,7 +17,7 @@ A-priori gold-driver feature set (NOT cherry-picked from the IC table):
 
 NOT production — pending forward validation.
 
-CLI:  python -m futures_swing.gc_macro_model
+CLI:  python -m futures_swing.research.gc_macro_model
 """
 from __future__ import annotations
 
@@ -28,9 +28,9 @@ from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from . import data_loader, model
-from . import vol as volmod
-from .diagnostics import block_bootstrap_ic
+from .. import data_loader, model
+from .. import vol as volmod
+from ..diagnostics import block_bootstrap_ic
 
 SYM = "GC"
 HORIZON = 60

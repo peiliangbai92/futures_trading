@@ -18,7 +18,6 @@ dependencies = [
   "lightgbm>=4.3",
   "scikit-learn>=1.4",
   "hmmlearn>=0.3",
-  "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

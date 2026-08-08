@@ -65,14 +65,3 @@ def compute_signals(
     return pd.DataFrame(
         {"pred_ret": pred, "fc_vol": fc, "sharpe": sharpe, "signal": signal}
     )
-
-
-def discretize(sharpe_value: float, *, long_th: float = DEFAULT_LONG_TH, short_th: float = DEFAULT_SHORT_TH, long_only: bool = False) -> int:
-    """Scalar Sharpe -> {-1, 0, +1} (or {0, +1} when ``long_only``)."""
-    if not np.isfinite(sharpe_value):
-        return 0
-    if sharpe_value >= long_th:
-        return 1
-    if sharpe_value <= short_th:
-        return 0 if long_only else -1
-    return 0

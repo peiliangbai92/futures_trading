@@ -1,8 +1,9 @@
 """futures_swing — systematic swing-trading model for ES and GC futures.
 
-Pipeline: data_loader -> features -> regime -> model (LightGBM alpha) ->
+Pipeline: data_loader -> features -> regime -> model (per-symbol alpha) ->
 signal (risk-adjusted) -> execution (entry/stop/target) -> risk (sizing +
-portfolio gates) -> backtest / pipeline (daily output).
+portfolio gates) -> backtest (walk-forward research) and, live, the
+pre-registered V1.6 strategy -> monitor / briefing (daily GitHub Actions).
 
 V1 uses yfinance daily data only. See README.md for scope and the plan.
 """

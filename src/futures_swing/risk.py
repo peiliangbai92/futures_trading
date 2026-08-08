@@ -7,6 +7,7 @@ drawdown, and stand aside around macro events.
 """
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -14,17 +15,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .execution import ATR_STOP_MULT
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EVENT_CSV = REPO_ROOT / "configs" / "event_calendar.csv"
 
-# Defaults (overridable via configs in V1.1).
 RISK_FRAC = 0.0075        # per-trade risk as a fraction of equity (0.5-1%)
-DAILY_LOSS_FRAC = 0.02    # block new entries after this daily loss
 DD_HALVE = 0.05           # halve size beyond 5% drawdown
 DD_HALT = 0.10            # stop trading beyond 10% drawdown
 STRENGTH_SCALE = 0.5      # |Sharpe| at which the conviction multiplier saturates
 MAX_CONTRACTS = 10
-STOP_MULT = 2.0           # must match execution.ATR_STOP_MULT
 TARGET_VOL = 0.10         # annualized per-trade vol target for vol_target sizing
 
 
@@ -42,7 +42,7 @@ def position_size(
     point_value: float,
     *,
     risk_frac: float = RISK_FRAC,
-    stop_mult: float = STOP_MULT,
+    stop_mult: float = ATR_STOP_MULT,
     strength_scale: float = STRENGTH_SCALE,
     max_contracts: int = MAX_CONTRACTS,
 ) -> int:
@@ -52,8 +52,8 @@ def position_size(
     dollar_risk_per_contract = stop_mult * atr * point_value
     if dollar_risk_per_contract <= 0:
         return 0
-    conviction = min(abs(sharpe) / strength_scale, 1.0)
-    raw = (equity * risk_frac) / dollar_risk_per_contract * conviction
+    conv = conviction(sharpe, strength_scale=strength_scale)
+    raw = (equity * risk_frac) / dollar_risk_per_contract * conv
     return int(min(np.floor(raw), max_contracts))
 
 
@@ -106,7 +106,11 @@ class RiskManager:
 
 
 def load_event_dates(path: Path | None = None) -> set[date]:
-    """Parse the macro event calendar (skips comment lines)."""
+    """Parse the macro event calendar (skips comment lines).
+
+    Warns when the calendar is close to running out: past its last row the
+    stand-aside filter silently becomes a no-op, so the warning is the only
+    signal that ``configs/event_calendar.csv`` needs next year's dates."""
     path = path or EVENT_CSV
     if not path.exists():
         return set()
@@ -119,6 +123,12 @@ def load_event_dates(path: Path | None = None) -> set[date]:
             out.add(date.fromisoformat(line.split(",", 1)[0]))
         except ValueError:
             continue
+    if out and (max(out) - date.today()).days < 30:
+        warnings.warn(
+            f"event calendar ends {max(out)} — extend configs/event_calendar.csv "
+            "or the event stand-aside filter will silently stop blocking",
+            stacklevel=2,
+        )
     return out
 
 

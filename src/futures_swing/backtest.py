@@ -253,7 +253,7 @@ def _hit_by_regime(trades: list[dict]) -> pd.DataFrame:
 
 def _baselines(close: pd.Series, oos_index: pd.Index) -> dict:
     """Buy & hold and 12-1 (120d) time-series momentum on the OOS window."""
-    c = close.reindex(close.index)
+    c = close
     ret = c.pct_change()
     bh = (1 + ret.reindex(oos_index).fillna(0)).cumprod()
     mom = np.sign(np.log(c / c.shift(120)))

@@ -166,7 +166,8 @@ def main() -> None:
 
     if args.evaluate:
         for sym in args.symbols:
-            print(json.dumps(evaluate(sym, args.as_of or "2026-06-19"), indent=2))
+            as_of = args.as_of or pd.Timestamp.today().strftime("%Y-%m-%d")
+            print(json.dumps(evaluate(sym, as_of), indent=2))
 
 
 if __name__ == "__main__":

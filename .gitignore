@@ -8,8 +8,6 @@ __pycache__/
 
 # Data caches and generated outputs (keep dirs via .gitkeep)
 data/raw/*.parquet
-data/processed/*.parquet
-data/signals/*.csv
 reports/
 outputs/
 *.png
