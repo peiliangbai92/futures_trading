@@ -1,77 +1,70 @@
 {
-  "asof": "2026-06-24",
+  "asof": "2026-08-06",
   "gamma_symbol": "GLD",
-  "conv": 10.949,
-  "gld_spot": 366.0,
-  "gc_ref": 4007.5,
-  "regime": -1,
-  "regime_label": "net SHORT gamma \u2014 moves amplified, levels are defend-or-break",
-  "speed_dir": "net_negative",
-  "net_gamma": -895160037.6532553,
-  "centroid_gc": 4010,
-  "flip_gc": null,
-  "upside_pivot_gc": 4100,
-  "downside_pivot_gc": 3915,
-  "line_in_sand_gc": 3940,
+  "conv": 10.887,
+  "gld_spot": 389.65,
+  "gc_ref": 4242.0,
+  "regime": 1,
+  "regime_label": "net LONG gamma \u2014 moves dampened, levels tend to hold",
+  "speed_dir": "flat_to_negative",
+  "net_gamma": 2511416.617996683,
+  "centroid_gc": 4235,
+  "flip_gc": 4245,
+  "upside_pivot_gc": 4295,
+  "downside_pivot_gc": 4230,
+  "line_in_sand_gc": 4245,
   "below": [
     {
-      "gc": 3940,
-      "gld": 360.0,
-      "oi": 169225,
-      "gex": -306841639.5865123,
-      "sign": -1,
-      "line_in_sand": true
-    },
-    {
-      "gc": 3885,
-      "gld": 355.0,
-      "oi": 47187,
-      "gex": -82243102.31959476,
-      "sign": -1,
+      "gc": 4215,
+      "gld": 387.0,
+      "oi": 3310,
+      "gex": 21090505.698756974,
+      "sign": 1,
       "line_in_sand": false
     },
     {
-      "gc": 3830,
-      "gld": 350.0,
-      "oi": 165161,
-      "gex": -160624991.28810555,
-      "sign": -1,
+      "gc": 4190,
+      "gld": 385.0,
+      "oi": 6080,
+      "gex": 35161170.40765795,
+      "sign": 1,
+      "line_in_sand": false
+    },
+    {
+      "gc": 4135,
+      "gld": 380.0,
+      "oi": 9453,
+      "gex": 27627030.91982384,
+      "sign": 1,
       "line_in_sand": false
     }
   ],
   "above": [
     {
-      "gc": 4050,
-      "gld": 370.0,
-      "oi": 62539,
-      "gex": 93095100.69609024,
-      "sign": 1
+      "gc": 4245,
+      "gld": 390.0,
+      "oi": 6372,
+      "gex": -43306439.375957504,
+      "sign": -1
     },
     {
-      "gc": 4105,
-      "gld": 375.0,
-      "oi": 64713,
-      "gex": 49873380.071944535,
-      "sign": 1
+      "gc": 4255,
+      "gld": 391.0,
+      "oi": 2705,
+      "gex": -18709867.970414463,
+      "sign": -1
     },
     {
-      "gc": 4160,
-      "gld": 380.0,
-      "oi": 86712,
-      "gex": 46002515.33054251,
-      "sign": 1
-    },
-    {
-      "gc": 4380,
+      "gc": 4355,
       "gld": 400.0,
-      "oi": 143264,
-      "gex": 30603932.192850243,
-      "sign": 1,
-      "call_wall": true
+      "oi": 7404,
+      "gex": -24682304.486466784,
+      "sign": -1
     }
   ],
   "tags": [
-    "defending_upside",
+    "defending_downside",
+    "rejection_band",
     "sticky",
     "vol_sold"
   ]

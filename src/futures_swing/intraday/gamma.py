@@ -20,7 +20,24 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-QR_REPO = Path(os.environ.get("QR_REPO", Path.home() / "Documents" / "GitHub" / "QuantitativeResearch"))
+def _find_qr_repo() -> Path:
+    """Locate the sibling QuantitativeResearch repo: $QR_REPO wins, else the
+    first existing conventional location (this PC keeps repos in ~/GitHub;
+    ~/Documents/GitHub is the retired macOS layout, kept as a fallback)."""
+    env = os.environ.get("QR_REPO")
+    if env:
+        return Path(env)
+    candidates = [
+        Path.home() / "GitHub" / "QuantitativeResearch",
+        Path.home() / "Documents" / "GitHub" / "QuantitativeResearch",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]
+
+
+QR_REPO = _find_qr_repo()
 PROFILE_DIR = QR_REPO / "reports" / "option_atm_flip"
 CHAIN_DIR = QR_REPO / "data" / "option"
 
