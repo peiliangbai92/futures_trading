@@ -1,0 +1,82 @@
+//@version=6
+// =============================================================================
+// GC Velocity-Breakdown Short — quick-exit waterfall momentum (5m chart)
+// -----------------------------------------------------------------------------
+// Tactic (user spec + 59-day 5m feasibility probe, 2026-08-08):
+//   Gold intraday MEAN-REVERTS after moderate dips (15m drop of ~15pts bounces
+//   +0.7pt over the next hour) but shows MOMENTUM CONTINUATION beyond a
+//   velocity threshold: after a 15-minute drop >= 25pts the next hour averages
+//   a further -4.6pts and the odds of another >=50pt flush are ~10x baseline.
+//   So: SHORT only violent breakdowns, hold MINUTES not days, and always be
+//   out within the hour. Probe robustness: threshold >= 25pts is a positive
+//   plateau across all target/stop brackets; the bracket itself barely matters
+//   (most exits are the time-stop — the edge is the hour's drift, the 50pt
+//   target only rarely fills).
+//
+//   Entry : 15-minute momentum (close - close[3] on a 5m chart) <= -velTh pts
+//   Exit  : target 50pts / stop 25pts / TIME EXIT after 12 bars (60 minutes)
+//   No pyramiding; longs are the swing system's job, this script never buys.
+//
+// A strategy() so the TradingView Strategy Tester can backtest it over YEARS
+// of 5m history (our local yfinance sample is only ~60 days — that history
+// depth is exactly why this lives in Pine). Use a 5-minute GC1!/MGC1! chart.
+// Set commission + slippage in Properties before trusting the tester.
+//
+// CAUTION from the probe: on 59 days the tactic's PnL was carried by 2 of 17
+// trades (82%) and most triggers cluster in violent corrective stretches —
+// expect long droughts and validate on the Tester's full history first.
+// =============================================================================
+
+strategy("GC velocity short (quick exit)", overlay=true,
+     pyramiding=0, calc_on_every_tick=false,
+     default_qty_type=strategy.fixed, default_qty_value=1)
+
+grpE = "Entry — velocity breakdown"
+velBars = input.int(3,  "Momentum lookback (bars)", minval=1, group=grpE,
+     tooltip="3 bars on a 5m chart = 15 minutes")
+velTh   = input.float(25.0, "Breakdown velocity (pts over lookback)", minval=1.0, step=1.0, group=grpE,
+     tooltip="Short when close - close[lookback] <= -this. Probe: below ~25 gold BOUNCES — do not lower this casually.")
+cdBars  = input.int(12, "Cooldown after an entry (bars)", minval=0, group=grpE)
+
+grpX = "Exit — always out within the hour"
+tgtPts  = input.float(50.0, "Profit target (pts)", minval=1.0, step=1.0, group=grpX)
+stpPts  = input.float(25.0, "Stop (pts)",          minval=1.0, step=1.0, group=grpX)
+maxBars = input.int(12, "Time exit (bars in trade)", minval=1, group=grpX,
+     tooltip="12 bars on a 5m chart = 60 minutes. The probe says the edge dies past the hour.")
+
+grpS = "Session filter (optional)"
+useSess = input.bool(false, "Only trade inside this session (ET)", group=grpS)
+sess    = input.session("0800-1300", "Session", group=grpS,
+     tooltip="Probe events clustered around the 08:00 ET COMEX/US-data window, but fired at all hours; default is OFF.")
+
+inSess = not useSess or not na(time(timeframe.period, sess, "America/New_York"))
+
+mom = close - close[velBars]
+var int lastEntryBar = na
+cooled = na(lastEntryBar) or (bar_index - lastEntryBar) > cdBars
+
+trigger = barstate.isconfirmed and mom <= -velTh and inSess and cooled and strategy.position_size == 0
+
+if trigger
+    strategy.entry("short", strategy.short)
+    lastEntryBar := bar_index
+
+if strategy.position_size < 0
+    strategy.exit("bracket", "short",
+         limit=strategy.position_avg_price - tgtPts,
+         stop=strategy.position_avg_price + stpPts)
+    // hard time exit: out after maxBars bars in the trade, no exceptions
+    if bar_index - lastEntryBar >= maxBars
+        strategy.close("short", comment="time")
+
+plotshape(trigger, title="Velocity short", style=shape.triangledown,
+     location=location.abovebar, color=color.new(color.maroon, 0), size=size.small)
+bgcolor(strategy.position_size < 0 ? color.new(color.maroon, 90) : na, title="Short open")
+plot(strategy.position_size < 0 ? strategy.position_avg_price - tgtPts : na,
+     "Target", color=color.green, style=plot.style_linebr)
+plot(strategy.position_size < 0 ? strategy.position_avg_price + stpPts : na,
+     "Stop", color=color.red, style=plot.style_linebr)
+
+// Alerts: create one alert on this strategy with "Order fills and alert()"
+// (or use the conditions below with Once Per Bar Close).
+alertcondition(trigger, "VELOCITY SHORT", "GC velocity short {{ticker}}: 15m drop >= threshold — SHORT @ {{close}}")

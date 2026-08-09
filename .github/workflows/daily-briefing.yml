@@ -104,7 +104,11 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         uses: actions/cache@v4
         with:
-          path: data/raw
+          # path list must match daily-signal.yml (shared data-raw- prefix;
+          # actions/cache versions caches by their path spec)
+          path: |
+            data/raw
+            data/intraday
           key: data-raw-brief-${{ github.run_id }}
           restore-keys: |
             data-raw-

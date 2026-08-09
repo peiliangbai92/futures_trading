@@ -48,7 +48,12 @@ jobs:
       - name: Restore data cache
         uses: actions/cache@v4
         with:
-          path: data/raw
+          # NB: keep this path list identical in daily-briefing.yml — the two
+          # workflows share the data-raw- restore prefix, and actions/cache
+          # versions caches by their path spec.
+          path: |
+            data/raw
+            data/intraday
           key: data-raw-${{ github.run_id }}
           restore-keys: |
             data-raw-
@@ -60,6 +65,19 @@ jobs:
             echo "data_loader attempt $i failed; retrying in 20s..."; sleep 20
           done
           echo "data_loader failed after 3 attempts"; exit 1
+
+      - name: Accrue 5m intraday cache (best-effort)
+        continue-on-error: true   # yfinance intraday is flaky; the swing signal never depends on it
+        run: |
+          python - <<'EOF'
+          from futures_swing.intraday import data as idata
+          for key, sym in (("GC", "GC=F"), ("ES", "ES=F")):
+              try:
+                  df = idata.refresh_5m(key, sym)
+                  print(f"{key} 5m: {len(df)} bars {df.index[0]} .. {df.index[-1]}")
+              except Exception as e:  # noqa: BLE001
+                  print(f"{key} 5m refresh failed: {type(e).__name__}: {e}")
+          EOF
 
       - name: Run monitor + render alert
         run: |

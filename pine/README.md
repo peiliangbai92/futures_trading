@@ -1,4 +1,23 @@
-# Multi-Timeframe RSI Signal Indicator (TradingView / Pine v6)
+# TradingView / Pine v6 scripts
+
+Two scripts live here:
+
+1. **`gc_mtf_rsi.pine`** — multi-timeframe RSI mean-reversion *signal
+   indicator* (long+short swing signals, no orders). Documented below.
+2. **`gc_velocity_short.pine`** — GC **velocity-breakdown short** *strategy*:
+   quick-exit waterfall shorts (short a ≥25pt 15-minute drop, target 50pts /
+   stop 25pts / hard 60-minute time exit, no pyramiding). Built from the
+   2026-08 intraday feasibility probe (59 days of 5m data): moderate gold dips
+   bounce intraday, only violent breakdowns continue — so shorts are held
+   minutes, never days. It is a `strategy()` **on purpose**: TradingView's
+   Strategy Tester has years of 5m history, which is exactly the validation
+   our ~60-day local yfinance sample cannot provide. Use a 5-minute
+   `COMEX:GC1!`/`MGC1!` chart, set commission + slippage in Properties, and
+   validate on full history before trusting a single alert.
+
+---
+
+# Multi-Timeframe RSI Signal Indicator (gc_mtf_rsi.pine)
 
 `gc_mtf_rsi.pine` — a **symbol-agnostic**, multi-timeframe **RSI mean-reversion
 signal indicator** implementing (and extending) the entry design in
