@@ -85,6 +85,45 @@ anchor, roll cleaner, basis features) landed first and is **kept**.
   only with a genuinely NQ-specific hypothesis (e.g. NDX-specific flows) or
   after materially more OOS accrues.
 
+## Study 4 (addendum, same day) — GC shorts from REVERSED long triggers
+
+Study 2 rejected *forecast-threshold* shorts. This follow-up tested the other
+channel: inverting the **price-action triggers** of the long design (rip-fade,
+fresh-40d-LOW breakdown, trend-break), event-study first, sims only for
+survivors. Independently verified by from-scratch recomputation (event stats,
+sim engine, trade PnLs penny-exact).
+
+Drift context first: GC 2005–2026 CAGR **+11.4%/yr** (B&H Sharpe 0.59,
+unconditional 20d drift +0.86%) — a calendar-time short fights all of it.
+
+- **Rip-fade: dead at the event stage.** Every overextension variant
+  (ret5 ≥ 4%/6%, close > MA20 + 2/3×ATR) has conditionally **positive**
+  forward returns — gold overextension *continues* (ret5 ≥ 6%: +1.05% fwd5).
+- **Breakdown (mirror of the 40d-high breakout long): anti-predictive.**
+  Fresh 40d lows precede **+1.63%** 20d returns (t +2.89 vs unconditional,
+  hit-neg 30%) — GC breakdowns get *bought*. The mirror-symmetry hypothesis is
+  falsified outright.
+- **Trend-break: the only conditionally-negative variant (8% off the 100d
+  peak) is insignificant** (t −0.99, CI straddles 0) and its negativity lives
+  entirely **pre-2016** (post-2016 the same event precedes +1.5–2.1% rallies).
+  Its 6 sim cells are ALL negative (median −0.155, best −0.12 with CI
+  [−0.43, +0.23]); anchored selection collapses (pre-2016 best +0.25 →
+  2016+ forward **−0.35**); and the combined book gets *worse* (Sharpe 0.54 →
+  0.48) despite a −0.11 sleeve correlation — diversification cannot rescue
+  negative expectancy.
+- **The live intuition, measured**: after a +7%/5d rally (n=14 in 21 years),
+  the next 5–10 days are a high-dispersion coin flip and the 20d horizon
+  resolves **above** the unconditional drift (+1.46% vs +0.86%). The two most
+  recent trend-break shorts of exactly this setup lost $1,800 (Oct-2025) and
+  $3,514 (Feb-2026) per MGC.
+
+**Verdict: both the model channel (Study 2) and the price-action channel
+(this study) for GC daily shorts are measured dead. GC stays long-only by
+measurement.** The user's short instinct — hold minutes, catch waterfalls —
+is an *intraday* phenomenon and lives in `pine/gc_velocity_short.pine`
+(velocity-breakdown tactic; validate on TradingView's multi-year 5m history),
+not in this daily system.
+
 ## What this bought
 
 The three "no"s are load-bearing: ES's 2-feature ridge is confirmed
