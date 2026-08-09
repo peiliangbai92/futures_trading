@@ -146,8 +146,8 @@ def main():
         d = Path(args.issue_dir); d.mkdir(parents=True, exist_ok=True)
         rendered = render_issue(sigs, cb)
         if rendered:
-            (d / "issue_title.txt").write_text(rendered[0])
-            (d / "issue_body.md").write_text(rendered[1])
+            (d / "issue_title.txt").write_text(rendered[0], encoding="utf-8")
+            (d / "issue_body.md").write_text(rendered[1], encoding="utf-8")
             print(f"\nALERT — tradeable action; issue files written to {d}")
         else:
             print("\nquiet — all HOLD, no issue rendered")

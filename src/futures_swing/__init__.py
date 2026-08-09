@@ -62,8 +62,9 @@ INSTRUMENTS = {
         # GC is DE-PRIORITIZED: its edge is real but DECAYING (recent-half OOS IC
         # ~+0.05 vs full-sample +0.07, not significant alone) and exhaustive research
         # (models, ~25 features across price/macro/COT/precious/curves/GVZ, horizons)
-        # beat nothing; options-flow is the only open lead, deferred to V2 (GLD chain
-        # now accruing). Kept at the standard 0.10 budget = a modest 1–2 MGC on $220k
+        # beat nothing; options-flow is the only open lead, deferred to V2 (the GLD
+        # chain accrues in the QuantitativeResearch repo — nothing in THIS repo reads
+        # it). Kept at the standard 0.10 budget = a modest 1–2 MGC on $220k
         # (~$42–84k notional, already small). De-rating to 0.05 was tested but MGC
         # integer rounding collapses to 0–1 contracts, killing conviction-scaling and
         # dropping Sharpe 0.57->0.38 — so "small + clean" is 1–2 MGC at 0.10, and any
