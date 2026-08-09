@@ -66,7 +66,7 @@ def _macro_block(symbol: str, idx: pd.DatetimeIndex, macros: dict[str, pd.Series
     def chg(key: str, n: int) -> pd.Series:
         return macros[key].reindex(idx, method="ffill").diff(n)
 
-    if symbol == "ES":
+    if symbol in ("ES", "NQ"):        # equity indices share the macro driver set
         out["vix_level"] = lvl("VIX")
         out["vix_chg5"] = chg("VIX", 5)
         out["vvix_level"] = lvl("VVIX")
@@ -105,6 +105,29 @@ def _macro_block(symbol: str, idx: pd.DatetimeIndex, macros: dict[str, pd.Series
 # --------------------------------------------------------------------- public
 
 
+def _basis_block(symbol: str, idx: pd.DatetimeIndex) -> pd.DataFrame:
+    """Futures-cash basis features for symbols with a cash-index anchor (ES/NQ).
+
+    Uses the RAW futures close vs the cash index: the basis is a property of the
+    actual contract price (carry = rates − dividends + roll premium), and the
+    roll-adjusted series distorts historical levels. Point-in-time: same-day
+    closes only. Empty for symbols without a cash anchor (GC) or when the cash
+    parquet is absent (fresh CI cache) — callers just get no basis columns."""
+    cash_key = INSTRUMENTS[symbol].get("roll_adjust_cash")
+    if not cash_key:
+        return pd.DataFrame(index=idx)
+    try:
+        fut = data_loader.load_ohlc(symbol)["close"]
+        cash = data_loader.load_close(cash_key)
+    except FileNotFoundError:
+        return pd.DataFrame(index=idx)
+    basis = fut.reindex(idx) / cash.reindex(idx, method="ffill") - 1.0
+    out = pd.DataFrame(index=idx)
+    out["basis_pct"] = basis          # futures premium over cash (carry-rich vs -poor)
+    out["basis_chg5"] = basis.diff(5)  # premium drift, roll-sawtooth aware
+    return out
+
+
 def build_feature_matrix(
     symbol: str, *, dropna: bool = True, include_fred: bool = False, regime_mode: str = "auto",
     hmm_kwargs: dict | None = None,
@@ -135,6 +158,7 @@ def build_feature_matrix(
         axis=1,
     )
     feats = feats.join(_macro_block(symbol, feats.index, macros, include_fred=include_fred))
+    feats = feats.join(_basis_block(symbol, feats.index))
 
     # market-wide regime (ES + VIX), reindexed onto this instrument's calendar
     if regime_mode == "hmm":

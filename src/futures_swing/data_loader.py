@@ -33,6 +33,7 @@ FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 YF_SYMBOLS: dict[str, str] = {k: v["yf_symbol"] for k, v in INSTRUMENTS.items()}
 YF_SYMBOLS.update(MACRO_SYMBOLS)
 YF_SYMBOLS["SPX_CASH"] = "^GSPC"   # cash index for the ES roll-jump cleaner (load_ohlc_model)
+YF_SYMBOLS["NDX_CASH"] = "^NDX"    # cash index for the NQ roll-jump cleaner
 
 _OHLC_COLS = ["open", "high", "low", "close", "adj_close", "volume"]
 

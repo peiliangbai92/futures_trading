@@ -73,6 +73,25 @@ INSTRUMENTS = {
         # No fair value for GC: cost-of-carry fair value is computed for the equity
         # index only (ES). See fair_value.py.
     },
+    "NQ": {
+        # ONBOARDING (2026-08): spec provisional pending the model-class study —
+        # start from the ES template (equity index, same macro drivers, ^NDX cash
+        # anchor for the roll cleaner). Not yet registered / not in the live
+        # monitor default until the study validates an edge.
+        "yf_symbol": "NQ=F",
+        "micro_symbol": "MNQ",
+        "point_value": 2.0,      # MNQ = $2 / index point
+        "tick": 0.25,
+        "horizon": 5,
+        "regime": "hmm",         # market HMM (ES+VIX) — shared equity-market regime
+        "alpha": {"kind": "ridge", "features": ["ret_5", "ret_20"], "ridge_alpha": 10.0},
+        "signal_th": 0.12,
+        "long_only": True,
+        "fair_value": {"kind": "index", "cash_key": "NDX_CASH", "rate_key": "SOFR",
+                       "div_yield": 0.008},   # NDX yields less than SPX
+        "roll_adjust": True,
+        "roll_adjust_cash": "NDX_CASH",
+    },
 }
 
 # Cross-asset / macro feeds available from yfinance (V1).
