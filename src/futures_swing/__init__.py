@@ -74,10 +74,13 @@ INSTRUMENTS = {
         # index only (ES). See fair_value.py.
     },
     "NQ": {
-        # ONBOARDING (2026-08): spec provisional pending the model-class study —
-        # start from the ES template (equity index, same macro drivers, ^NDX cash
-        # anchor for the roll cleaner). Not yet registered / not in the live
-        # monitor default until the study validates an edge.
+        # RESEARCH SCAFFOLD ONLY — the V1.8 onboarding study (2026-08-08,
+        # docs/EXPANSION_STUDIES.md) found NO enrollable edge: best OOS IC
+        # +0.038 with CI spanning 0, the positive trade plateau is pure
+        # long-drift (shuffled-forecast null matches it, p=0.55), and the
+        # sleeve is 0.6-0.7 correlated with the ES sleeve (redundant equity
+        # beta). Kept for data plumbing + future re-evaluation; deliberately
+        # NOT in DESIGN / monitor / briefing defaults.
         "yf_symbol": "NQ=F",
         "micro_symbol": "MNQ",
         "point_value": 2.0,      # MNQ = $2 / index point

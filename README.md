@@ -202,6 +202,23 @@ python -m futures_swing.diagnostics --symbol ES --experiment all   # reproduce
 > and the long-only/threshold choices were picked on the full OOS backtest, so
 > **pre-register and collect forward OOS** before treating it as a live edge.
 
+### V1.8 — expansion studies: ES features, short sleeve, NQ (tested, not adopted)
+
+Three pre-specified studies (2026-08-08, identical purged walk-forward, decision
+rule fixed in advance; full detail in `docs/EXPANSION_STUDIES.md`):
+
+| study | best candidate | verdict |
+|---|---|---|
+| ES richer features (basis/macro/regime/all) | ridge-2+basis, OOS IC +0.064 vs +0.056 | **not adopted** — paired ΔIC is noise (CI [−0.04, +0.05]), sim Sharpe 0.42→0.39 (turnover cost), edge stale in the recent half; V1.4 dilution replicates on fresh data |
+| Short sleeve, ES + GC (72-cell a-priori grid) | GC trail/th 0.35, Sharpe +0.03 | **rejected** — ES left tail is *anti-predictive* (bearish forecasts precede +0.9% 5d rallies); GC grid median −0.20 with 3% cells positive → noise-mining guard; both edges live entirely on the long side |
+| NQ onboarding (MNQ) | ridge-2+basis, OOS IC +0.038, CI spans 0 | **not enrolled** — the positive trade plateau (Sharpe 0.56) equals the shuffled-forecast null (p=0.55): pure long-drift, zero timing; sleeve corr 0.6–0.7 with ES = double-counted equity beta. Data plumbing kept |
+
+New in the codebase from this round: NQ + `^NDX` cash data feeds, NQ roll-jump
+cleaning, and futures–cash **basis features** (`basis_pct`, `basis_chg5`) in the
+ES/NQ matrices (inert for the live ridge-2 sleeve). Watchlist: the macro-mini
+config's recent-half IC (+0.087) is flagged for a pre-registered re-test in
+6–12 months.
+
 ## V2 roadmap
 
 Databento + IBKR live data/execution; FRED macro factors; option-flow features
