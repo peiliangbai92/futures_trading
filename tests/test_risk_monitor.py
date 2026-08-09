@@ -118,6 +118,51 @@ def test_append_live_log_dedupes_and_keeps_last(tmp_path, monkeypatch):
     assert df.loc[df["asof"] == "2026-08-07", "your_action"].item() == "HOLD (1)"
 
 
+def test_append_shadow_log_dedupes_on_asof_symbol_model(tmp_path, monkeypatch):
+    monkeypatch.setattr(monitor, "SHADOW_LOG", tmp_path / "shadow_log.csv")
+    row = dict(asof="2026-08-10", symbol="ES", model="baseline", pred=0.001, sharpe=0.02)
+    cand = dict(asof="2026-08-10", symbol="ES", model="macro_mini", pred=0.002, sharpe=0.04)
+    monitor.append_shadow_log([row, cand])
+    monitor.append_shadow_log([dict(row, pred=0.003)])       # same key -> replace
+    df = pd.read_csv(monitor.SHADOW_LOG)
+    assert len(df) == 2
+    assert df.loc[df["model"] == "baseline", "pred"].item() == 0.003
+
+
+def test_shadow_candidate_specs_are_wellformed():
+    """Every pre-registered candidate must parse and reference real features."""
+    import json
+
+    from futures_swing import INSTRUMENTS
+
+    paths = sorted(monitor.SHADOW_DIR.glob("*.json"))
+    assert paths, "expected at least one registered candidate"
+    for p in paths:
+        cand = json.loads(p.read_text())
+        assert cand["symbol"] in INSTRUMENTS
+        assert cand["alpha"]["kind"] in ("ridge", "lgbm")
+        assert cand["freeze_date"] and cand["promotion_rule"]
+        # the comparator and horizon must be frozen IN the spec — shadow rows
+        # must not silently track a drifting live INSTRUMENTS config
+        assert cand["baseline_alpha"]["kind"] in ("ridge", "lgbm")
+        assert isinstance(cand["horizon"], int) and cand["horizon"] > 0
+
+
+@pytest.mark.skipif(not (monitor.REPO / "data" / "raw" / "ES.parquet").exists(),
+                    reason="data/raw not built")
+def test_shadow_candidate_features_exist_in_matrix():
+    import json
+
+    from futures_swing import features
+
+    cols = set(features.build_feature_matrix("ES").columns)
+    for p in sorted(monitor.SHADOW_DIR.glob("*.json")):
+        cand = json.loads(p.read_text())
+        if cand["symbol"] == "ES" and isinstance(cand["alpha"].get("features"), list):
+            missing = set(cand["alpha"]["features"]) - cols
+            assert not missing, f"{p.name}: features not in matrix: {missing}"
+
+
 def test_append_live_log_tolerates_legacy_schema(tmp_path, monkeypatch):
     """Old CSVs predate the raw_action column; appending must not lose rows."""
     log = tmp_path / "live_log.csv"

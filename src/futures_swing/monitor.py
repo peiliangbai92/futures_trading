@@ -30,6 +30,9 @@ LIVE_LOG = REPO / "tracking" / "live_log.csv"
 # Your real book: per-symbol go-live date (you start flat there and take only
 # fresh signals — see strategy.live_signal). Missing -> model-continuous view.
 ACCOUNT_FILE = REPO / "tracking" / "account.json"
+# Pre-registered candidate alphas (shadow-tracked, NOT live) + their forward log.
+SHADOW_DIR = REPO / "configs" / "registrations" / "candidates"
+SHADOW_LOG = REPO / "tracking" / "shadow_log.csv"
 
 
 def load_account() -> dict:
@@ -46,6 +49,58 @@ def append_live_log(rows: list[dict]) -> None:
         df = pd.concat([pd.read_csv(LIVE_LOG), df], ignore_index=True).drop_duplicates(
             ["asof", "symbol"], keep="last")
     df.to_csv(LIVE_LOG, index=False)
+
+
+def shadow_signals() -> list[dict]:
+    """Forward-track pre-registered CANDIDATE alphas next to the live baseline.
+
+    For each configs/registrations/candidates/*.json spec, fit BOTH the frozen
+    candidate and the live baseline on all realized data and record today's
+    forecast + vol-scaled sharpe. Forecasts are logged before their outcomes
+    realize, so the later promotion decision (the JSON's promotion_rule,
+    scored by ``forward_validation --shadow``) rests on true forward evidence,
+    immune to later code or data drift."""
+    if not SHADOW_DIR.exists():
+        return []
+    from . import INSTRUMENTS, data_loader, features, model
+    from .signal import horizon_forecast_vol
+
+    rows: list[dict] = []
+    for path in sorted(SHADOW_DIR.glob("*.json")):
+        cand = json.loads(path.read_text())
+        sym = cand["symbol"]
+        # horizon and BOTH alpha specs come from the frozen JSON — never from the
+        # live INSTRUMENTS, which may drift during the multi-month shadow window.
+        horizon = int(cand.get("horizon", INSTRUMENTS[sym]["horizon"]))
+        X = features.build_feature_matrix(sym, dropna=True)
+        close = data_loader.load_ohlc_model(sym)["close"]
+        fc = float(horizon_forecast_vol(close, horizon).iloc[-1])
+        asof = str(X.index[-1].date())
+        for name, spec in (("baseline", cand["baseline_alpha"]), (cand["name"], cand["alpha"])):
+            mdl, cols, _ = model.fit_full(sym, alpha_spec=spec)
+            want = spec.get("features")
+            if isinstance(want, list) and set(cols) != set(want):
+                # _select_features silently intersects with available columns; a
+                # partial fit (e.g. basis features missing on a cold data cache)
+                # is a DIFFERENT model — refuse to log it under the frozen name.
+                # The caller's try/except turns this into a skipped day, which is
+                # recoverable; a contaminated forward row is not.
+                raise RuntimeError(f"{path.name}/{name}: fitted {sorted(cols)} != "
+                                   f"frozen features {sorted(want)}")
+            pred = float(mdl.predict(X[cols].iloc[[-1]])[0])
+            sharpe = pred / fc if fc > 0 else float("nan")
+            rows.append(dict(asof=asof, symbol=sym, model=name,
+                             pred=round(pred, 6), sharpe=round(sharpe, 4)))
+    return rows
+
+
+def append_shadow_log(rows: list[dict]) -> None:
+    SHADOW_LOG.parent.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame(rows)
+    if SHADOW_LOG.exists():
+        df = pd.concat([pd.read_csv(SHADOW_LOG), df], ignore_index=True).drop_duplicates(
+            ["asof", "symbol", "model"], keep="last")
+    df.to_csv(SHADOW_LOG, index=False)
 
 
 def render_issue(sigs: list[dict], cb: dict | None = None) -> tuple[str, str] | None:
@@ -99,6 +154,13 @@ def status(symbols, as_of, do_log):
                 s["your_action"] = "HALT-no entry"
     if do_log:
         append_live_log(sigs)
+        try:                       # shadow tracking must never break live ops
+            srows = shadow_signals()
+            if srows:
+                append_shadow_log(srows)
+                print(f"shadow: logged {len(srows)} candidate/baseline forecasts")
+        except Exception as e:  # noqa: BLE001 - isolate candidate failures
+            print(f"shadow tracking skipped: {type(e).__name__}: {e}")
 
     if cb["halted"]:
         print(f"\n🛑 CIRCUIT BREAKER: HALTED (only-close) — {cb['reason']}")

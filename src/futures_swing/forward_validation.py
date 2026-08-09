@@ -32,6 +32,7 @@ from .strategy import DESIGN, simulate
 
 REPO = Path(__file__).resolve().parents[2]
 REG_DIR = REPO / "configs" / "registrations"
+SHADOW_LOG = REPO / "tracking" / "shadow_log.csv"
 TD = 252
 
 # Per-symbol rule grids for re-selection (a priori, modest).
@@ -135,12 +136,56 @@ def evaluate(symbol, as_of) -> dict:
                 live_sharpe=live, expected_low=lo, baseline_sharpe=reg["baseline_sharpe"], verdict=verdict)
 
 
+def evaluate_shadow(symbol: str = "ES") -> dict:
+    """Forward scoreboard for the pre-registered candidate alphas.
+
+    Scores every model in tracking/shadow_log.csv (written daily by
+    ``monitor --log``) by the Spearman IC of its LOGGED forecasts against the
+    realized horizon return — using only rows whose forward window has closed.
+    This is the ONLY evidence the candidates' promotion_rule may use: the
+    forecasts were recorded before their outcomes."""
+    from scipy.stats import spearmanr
+
+    from . import features
+
+    if not SHADOW_LOG.exists():
+        return {}
+    log = pd.read_csv(SHADOW_LOG, parse_dates=["asof"])
+    log = log[log["symbol"] == symbol]
+    if log.empty:
+        return {}
+    # score against the FROZEN horizon from the candidate spec(s), not the live
+    # INSTRUMENTS value, which may drift during the multi-month shadow window
+    horizons = set()
+    for p in sorted((REG_DIR / "candidates").glob("*.json")):
+        c = json.loads(p.read_text())
+        if c.get("symbol") == symbol and "horizon" in c:
+            horizons.add(int(c["horizon"]))
+    if len(horizons) > 1:
+        raise ValueError(f"shadow candidates for {symbol} disagree on horizon: {sorted(horizons)}")
+    horizon = horizons.pop() if horizons else INSTRUMENTS[symbol]["horizon"]
+    close = data_loader.load_ohlc_model(symbol)["close"]
+    fwd = features.forward_log_return(close, horizon)
+    out: dict[str, dict] = {}
+    for name, g in log.groupby("model"):
+        g = g.drop_duplicates("asof", keep="last").set_index("asof").sort_index()
+        realized = fwd.reindex(g.index)
+        m = realized.notna() & g["pred"].notna()
+        n = int(m.sum())
+        ic = float(spearmanr(g.loc[m, "pred"], realized[m]).statistic) if n >= 10 else float("nan")
+        out[name] = dict(n_scored=n, n_logged=len(g), fwd_ic=round(ic, 4),
+                         first=str(g.index.min().date()), last=str(g.index.max().date()))
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Forward (out-of-time) validation")
     ap.add_argument("--symbols", nargs="+", default=["ES", "GC"], choices=list(DESIGN))
     ap.add_argument("--anchored", action="store_true")
     ap.add_argument("--register", action="store_true")
     ap.add_argument("--evaluate", action="store_true")
+    ap.add_argument("--shadow", action="store_true",
+                    help="score pre-registered candidate alphas on the forward shadow log")
     ap.add_argument("--as-of", default=None)
     args = ap.parse_args()
 
@@ -168,6 +213,19 @@ def main() -> None:
         for sym in args.symbols:
             as_of = args.as_of or pd.Timestamp.today().strftime("%Y-%m-%d")
             print(json.dumps(evaluate(sym, as_of), indent=2))
+
+    if args.shadow:
+        for sym in args.symbols:
+            sb = evaluate_shadow(sym)
+            if not sb:
+                print(f"{sym}: no shadow log yet (rows accrue via daily monitor --log)")
+                continue
+            print(f"\n=== {sym}: shadow candidates — forward IC on logged forecasts ===")
+            for name, r in sorted(sb.items()):
+                print(f"  {name:12s} logged {r['n_logged']:>4d} ({r['first']}..{r['last']}) | "
+                      f"scored {r['n_scored']:>4d} | forward IC {r['fwd_ic']:+.4f}")
+            print("  (promotion rule + earliest evaluation date: see "
+                  "configs/registrations/candidates/*.json)")
 
 
 if __name__ == "__main__":

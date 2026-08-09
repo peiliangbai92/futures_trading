@@ -99,6 +99,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add tracking/live_log.csv tracking/circuit_breaker.json
+          # shadow log is best-effort — its absence must never sink the live commit
+          test -f tracking/shadow_log.csv && git add tracking/shadow_log.csv || true
           if git diff --cached --quiet; then
             echo "No tracking change to commit."
             exit 0
