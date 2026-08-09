@@ -124,6 +124,33 @@ is an *intraday* phenomenon and lives in `pine/gc_velocity_short.pine`
 (velocity-breakdown tactic; validate on TradingView's multi-year 5m history),
 not in this daily system.
 
+## Study 5 (2026-08-09) — intraday velocity-breakdown short, multi-year backtest
+
+The 59-day feasibility probe behind `pine/gc_velocity_short.pine` (short a
+≥25pt 15-minute drop, 50/25 bracket, 60-min time exit) was re-tested on **5.6
+years** of Dukascopy XAUUSD 1-minute data (2021-01..2026-08, 2.9M bars; two
+corrupt day-files dropped, 23 days missing). Spot is a validated proxy for
+GC futures: on the 59-day overlap vs GC=F 5m, 15m-momentum correlation
+**0.976**, move slope **1.003**, trigger-set Jaccard 0.74, median basis +17.5pt.
+
+| | result |
+|---|---|
+| Baseline (25pt/50/25/60min) | 213 trades, win 45.1%, **avg +0.94pt, bootstrap CI [−2.7, +4.5]** — indistinguishable from zero |
+| PnL decomposition | gross +382pt, costs −181pt, **net +201pt**; maxDD **−470pt** (2.3× the total profit); top-2 trades = 49% of PnL |
+| Regime concentration | 97% of triggers in 2025–2026 (a fixed 25pt bar barely fires at $1,800–2,700 gold); **all** net profit = 2025 (+176pt / 42 trades) |
+| The killer fact | **2026: 164 trades, net ±0** — in the most short-friendly gold year in decades (5318 → 3986 crash and recovery), the tactic broke even |
+| Price-level stability | fully %-scaled variant (0.58%/1.16%/0.58%): **−9pt** over 332 trades; %-threshold-only variant's top-2 trades = 91% of its PnL — the phenomenon does not transfer across price regimes |
+| Grids (pre-specified) | thresholds 25–40pt all positive-mean but every CI straddles 0; tighter brackets (30/15, 40/20) mildly better; 30-min exit ≈ 60-min |
+
+**Verdict: not validated.** The event-level velocity-continuation effect is
+real (Study 4 addendum / probe event studies), but after realistic MGC costs
+it does not convert into a tactic with positive expectancy: the probe's
++114pt (Jun–Aug 2026) was a favorable local window inside a flat 2026. The
+pine script stays as a *discretionary alert tool* with this verdict written
+into its header; nothing here is registered or automated. If it is used at
+all: only ≥25pt velocity, quick exits, expect multi-month droughts, and know
+that the best short environment in decades paid zero.
+
 ## What this bought
 
 The three "no"s are load-bearing: ES's 2-feature ridge is confirmed

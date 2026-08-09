@@ -6,14 +6,12 @@ Two scripts live here:
    indicator* (long+short swing signals, no orders). Documented below.
 2. **`gc_velocity_short.pine`** — GC **velocity-breakdown short** *strategy*:
    quick-exit waterfall shorts (short a ≥25pt 15-minute drop, target 50pts /
-   stop 25pts / hard 60-minute time exit, no pyramiding). Built from the
-   2026-08 intraday feasibility probe (59 days of 5m data): moderate gold dips
-   bounce intraday, only violent breakdowns continue — so shorts are held
-   minutes, never days. It is a `strategy()` **on purpose**: TradingView's
-   Strategy Tester has years of 5m history, which is exactly the validation
-   our ~60-day local yfinance sample cannot provide. Use a 5-minute
-   `COMEX:GC1!`/`MGC1!` chart, set commission + slippage in Properties, and
-   validate on full history before trusting a single alert.
+   stop 25pts / hard 60-minute time exit, no pyramiding). ⚠ **Multi-year
+   backtest verdict (docs/EXPANSION_STUDIES.md Study 5): NOT a validated
+   edge** — on 5.6 years of proxy-validated 5m data the expectancy is
+   statistically zero (CI [−2.7, +4.5] pts/trade), drawdown dwarfs profit,
+   and 2026's historic gold crash netted nothing. Kept as a *discretionary
+   heads-up alert* only; never automate it.
 
 ---
 

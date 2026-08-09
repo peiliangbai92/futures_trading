@@ -18,13 +18,17 @@
 //   No pyramiding; longs are the swing system's job, this script never buys.
 //
 // A strategy() so the TradingView Strategy Tester can backtest it over YEARS
-// of 5m history (our local yfinance sample is only ~60 days — that history
-// depth is exactly why this lives in Pine). Use a 5-minute GC1!/MGC1! chart.
-// Set commission + slippage in Properties before trusting the tester.
+// of 5m history. Use a 5-minute GC1!/MGC1! chart. Set commission + slippage
+// in Properties before trusting the tester.
 //
-// CAUTION from the probe: on 59 days the tactic's PnL was carried by 2 of 17
-// trades (82%) and most triggers cluster in violent corrective stretches —
-// expect long droughts and validate on the Tester's full history first.
+// ⚠ MULTI-YEAR BACKTEST VERDICT (2026-08-09, docs/EXPANSION_STUDIES.md
+// Study 5; 5.6y of XAUUSD 5m, proxy-validated vs GC=F at corr 0.976):
+// NOT a validated edge. 213 trades, avg +0.94pt with bootstrap CI [-2.7,+4.5]
+// (zero inside), maxDD -470pt vs +201pt total, all net profit from 2025, and
+// 2026 — the best short year in decades (5318->3986) — netted ZERO. The
+// velocity-continuation phenomenon is real at the event level but does not
+// survive costs as a systematic tactic. Treat this script as a DISCRETIONARY
+// heads-up alert, not a system: expect multi-month droughts, never automate.
 // =============================================================================
 
 strategy("GC velocity short (quick exit)", overlay=true,
