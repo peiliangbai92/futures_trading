@@ -74,3 +74,5 @@ ES,2026-08-07,1,HOLD (1),1,HOLD (1),-0.036,mom20,
 GC,2026-08-07,2,ADD 1 lot,2,ADD 1 lot,0.021,trail,
 ES,2026-08-10,0,HOLD (flat),1,HOLD (1),0.017,mom20,HOLD (flat)
 GC,2026-08-10,1,BUY 1 lot,2,ADD 1 lot,-0.033,trail,BUY 1 lot
+ES,2026-08-11,0,HOLD (flat),1,HOLD (1),0.087,mom20,HOLD (flat)
+GC,2026-08-11,1,HOLD (1),2,HOLD (2),0.009,trail,HOLD (1)
