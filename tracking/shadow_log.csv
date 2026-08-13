@@ -5,3 +5,5 @@ asof,symbol,model,pred,sharpe
 2026-08-11,ES,macro_mini,0.00164,0.085
 2026-08-12,ES,baseline,0.001408,0.0729
 2026-08-12,ES,macro_mini,0.001311,0.0679
+2026-08-13,ES,baseline,0.000789,0.0404
+2026-08-13,ES,macro_mini,-0.000257,-0.0131
